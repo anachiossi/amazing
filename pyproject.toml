@@ -1,0 +1,49 @@
+# ============================================================
+# WARNING — STILL SUBJECT TO CHANGE
+#
+# The metadata below is provisional. At least these must be
+# revisited before the defense:
+#   * authors      : real 42 logins
+#   * license      : LICENSE.md is still a stub, nothing chosen
+#   * version      : bump when the package layout settles
+#   * description  : rewrite once the algorithm is decided
+# The build configuration itself (src layout, backend) is
+# working and should not need changes.
+# ============================================================
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mazegen"
+version = "1.0.0"
+description = "Reusable maze generator from the 42 A-Maze-ing project"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.md" }
+keywords = ["maze", "generator", "42"]
+dependencies = []
+
+authors = [
+    { name = "<login1>" },
+    { name = "<login2>" },
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Games/Entertainment",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["flake8", "mypy"]
+
+# The reusable package lives under src/, so setuptools is told where to
+# look. Only mazegen is packaged: app/ and tests/ stay out of the wheel.
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
