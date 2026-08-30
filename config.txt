@@ -15,3 +15,10 @@ OUTPUT_FILE=maze.txt
 # True  : exactly one path between entry and exit, no loops
 # False : playable board with at least two independent routes
 PERFECT=True
+
+# Optional. SEED fixes the random generation so the same maze comes
+# back every run; leave it out for a different maze each time.
+#SEED=42
+
+# Optional. Which generation algorithm to use.
+#ALGORITHM=backtracker
