@@ -39,8 +39,8 @@ class MazeGenerator:
         # TODO
         raise NotImplementedError
 
-    def is_3x3_open(self, maze: Maze, x: int, y: int) -> bool:
-        """Tell whether the 3x3 square centred on (x, y) has no inner walls.
+    def is_3x3_open(self, maze: Maze, col: int, row: int) -> bool:
+        """Tell whether the 3x3 square centred on (col, row) is open.
 
         The central cell is 0000 and the neighbours have no walls between
         them; the walls on the outer side of the square may be present.

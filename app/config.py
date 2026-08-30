@@ -107,12 +107,14 @@ class MazeConfig:
 
     @staticmethod
     def _to_point(key: str, value: str) -> tuple[int, int]:
-        """Read an ``y, x`` pair and keep it's order exactly as written.
-        19,14 stays (19, 14): 20th column, 15th row."""
+        """Read a ``col,row`` pair and keep its order exactly as written.
+
+        19,14 stays (19, 14): the 20th column, the 15th row.
+        """
         parts = value.split(",")
         if len(parts) != 2:
             raise MazeConfigError(
-                f"{key.upper()} must be written as y,x, got {value!r}"
+                f"{key.upper()} must be written as col,row, got {value!r}"
             )
         try:
             col, row = (int(part.strip()) for part in parts)
