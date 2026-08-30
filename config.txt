@@ -1,0 +1,17 @@
+# a_maze_ing — default configuration
+# One KEY=VALUE pair per line. Lines starting with # are ignored.
+
+# Maze size, in cells
+WIDTH=20
+HEIGHT=15
+
+# Entry and exit, written as x,y — that is column,row
+ENTRY=0,0
+EXIT=19,14
+
+# Where the generated maze is written
+OUTPUT_FILE=maze.txt
+
+# True  : exactly one path between entry and exit, no loops
+# False : playable board with at least two independent routes
+PERFECT=True
