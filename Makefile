@@ -28,7 +28,8 @@ MYPY_FLAGS := --warn-return-any --warn-unused-ignores \
 	          --ignore-missing-imports --disallow-untyped-defs \
 	          --check-untyped-defs
 
-.PHONY: install run debug clean fclean lint lint-strict test help
+.PHONY: install run debug clean fclean lint lint-strict test \
+        check-all help
 
 # First target of the file, so a bare "make" lands here.
 help:
@@ -48,6 +49,7 @@ help:
 	'debug'   'run it under pdb'
 	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Checks'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
+	'check-all'   'run the tests and the strict linting, all at once' \
 	'test'        'run the unit tests' \
 	'lint'        'flake8 + mypy with the required flags' \
 	'lint-strict' 'flake8 + mypy --strict'
@@ -83,6 +85,12 @@ lint: $(STAMP)
 lint-strict: $(STAMP)
 	$(VPYTHON) -m flake8 .
 	$(VPYTHON) -m mypy . --strict
+
+# Everything at once, in the order that fails fastest: the tests first,
+# then the strictest linting. Make stops at the first command that
+# fails, so a green run means the whole project is in order.
+check-all: test lint-strict
+	@printf '$(GREEN)$(BOLD)%s$(RESET)\n' 'tests and strict linting: all good'
 
 clean:
 	rm -rf .mypy_cache .pytest_cache build dist *.egg-info
