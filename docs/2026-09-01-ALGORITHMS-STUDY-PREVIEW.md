@@ -3,7 +3,6 @@
 **Date:** 2026-09-01
 
 - Interactive visualizer: [`algorithm-visualizer.html`](./algorithm-visualizer.html)
-- Source notes: [Algorithm Field Guide](https://app.notion.com/p/Algorithm-Field-Guide-3ce82782872c8151b777ed72298fc785) (Notion)
 
 This document surveys **every algorithm under consideration**. It does not
 pick any of them. The choices, and the reasoning behind them, go in a
@@ -18,8 +17,7 @@ corner, averaged over 150-300 runs.
 ## Part 1 — Generation
 
 **All five produce perfect mazes.** Measured: zero loops in every one.
-This is not a coincidence — every classic generation algorithm builds a
-spanning tree. They differ in *texture*, never in perfectness.
+
 
 | Algorithm | Loops | Dead ends | Straight corridors | Bias | Animation |
 |---|---|---|---|---|---|
@@ -90,45 +88,6 @@ Measured, A* against JPS:
 
 ---
 
-## Corrections to the field guide
-
-Checked against measurement. Most of the guide holds; the JPS section does
-not.
-
-**The JPS forced-neighbour rule in the guide is unsound here.** It is the
-8-connected rule: prune a turn when the previous cell could turn the same
-way, because turning earlier costs the same. That symmetry comes from
-diagonal movement. On a 4-connected maze two adjacent cells opening the
-same way lead to cells that are *not* connected to each other — in a
-perfect maze they cannot be, that would be a loop. Measured: **150 of 150
-mazes returned a wrong or missing path.** The visualizer therefore stops at
-every possible turn instead.
-
-**"Dramatically fewer cells coloured" is false.** A jump scans every cell it
-passes over. Measured 852 cells for A* against 807 for JPS — a rounding
-error. The saving is in queue expansions, not cells touched.
-
-**"10-100x fewer nodes expanded" does not apply.** That figure is for open
-8-connected grids. Here it is 31-41%.
-
-**"Sparse diagonal lines" cannot happen** — the maze is 4-connected, so
-there are no diagonal moves at all.
-
-**"In Pac-Man mode the speed difference is real" is backwards.** Measured
-saving is *smaller* when braided (31%) than on a perfect maze (41%): open
-areas create more turn options, so jumps end sooner.
-
-**Wilson's "O(cells) expected" is a simplification.** The real bound depends
-on the graph's mean hitting time. Measured 3.3 steps per cell at this size,
-so near-linear in practice, but it is not a linear-time algorithm.
-
-**The bidirectional BFS "key trap" is sound advice but did not fire.** The
-guide warns that checking overlap mid-level can miss the shortest path, and
-the visualizer does check mid-level. Across 600 mazes, perfect and braided,
-it never returned a longer path than BFS. Worth keeping in mind rather than
-treating as settled.
-
----
 
 ## Still to decide
 
