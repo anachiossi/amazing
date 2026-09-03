@@ -44,7 +44,7 @@ class MazeTest(unittest.TestCase):
             for side in SIDES:
                 step_col, step_row = side.step()
                 other_col, other_row = col + step_col, row + step_row
-                if not maze._is_inside(other_col, other_row):
+                if (other_col, other_row) not in maze:
                     continue
                 self.assertEqual(
                     maze.get_wall(col, row, side),
@@ -58,7 +58,7 @@ class MazeTest(unittest.TestCase):
         for col, row in self.cells(maze):
             for side in SIDES:
                 step_col, step_row = side.step()
-                if maze._is_inside(col + step_col, row + step_row):
+                if (col + step_col, row + step_row) in maze:
                     continue
                 self.assertTrue(
                     maze.get_wall(col, row, side),
@@ -151,6 +151,37 @@ class TestConstruction(MazeTest):
         self.assert_border_closed(Maze(5, 4))
 
 
+class TestContains(MazeTest):
+    """(col, row) in maze, the public way to ask whether a cell exists."""
+
+    def test_every_cell_of_the_grid_is_in(self) -> None:
+        maze = Maze(4, 3)
+        for col, row in self.cells(maze):
+            self.assertTrue((col, row) in maze)
+
+    def test_a_cell_past_the_last_one_is_out(self) -> None:
+        maze = Maze(4, 3)
+        self.assertFalse((4, 0) in maze)
+        self.assertFalse((0, 3) in maze)
+        self.assertFalse((4, 3) in maze)
+
+    def test_negative_coordinates_are_out(self) -> None:
+        """Python would read the last column instead of failing."""
+        maze = Maze(4, 3)
+        self.assertFalse((-1, 0) in maze)
+        self.assertFalse((0, -1) in maze)
+
+    def test_the_walls_do_not_matter(self) -> None:
+        """A cell exists whether it is closed or wide open."""
+        maze = self.open_maze(3, 3)
+        self.assertTrue((1, 1) in maze)
+
+    def test_the_only_cell_of_a_1x1_maze(self) -> None:
+        maze = Maze(1, 1)
+        self.assertTrue((0, 0) in maze)
+        self.assertFalse((1, 0) in maze)
+
+
 class TestBounds(MazeTest):
     """Every method refuses a cell outside the grid."""
 
@@ -173,13 +204,13 @@ class TestBounds(MazeTest):
         with self.assertRaises(IndexError):
             self.maze.destroy_wall(9, 9, Direction.N)
 
-    def test_adjacent_points(self) -> None:
+    def test_adjacent_cells(self) -> None:
         with self.assertRaises(IndexError):
-            self.maze.adjacent_points(3, 0)
+            self.maze.adjacent_cells(3, 0)
 
-    def test_neighbours_points(self) -> None:
+    def test_reachable_cells(self) -> None:
         with self.assertRaises(IndexError):
-            self.maze.neighbours_points(0, 2)
+            self.maze.reachable_cells(0, 2)
 
     def test_negative_coordinates_are_refused(self) -> None:
         """Python would read the last column instead of failing."""
@@ -369,78 +400,78 @@ class TestDestroyWall(MazeTest):
         self.assert_coherent(maze)
 
 
-class TestAdjacentPoints(MazeTest):
+class TestAdjacentCells(MazeTest):
     """Which cells exist around another one, walls ignored."""
 
     def test_an_inner_cell_has_four(self) -> None:
         maze = Maze(3, 3)
-        self.assertEqual(sorted(maze.adjacent_points(1, 1)),
+        self.assertEqual(sorted(maze.adjacent_cells(1, 1)),
                          [(0, 1), (1, 0), (1, 2), (2, 1)])
 
     def test_a_border_cell_has_three(self) -> None:
-        self.assertEqual(len(Maze(3, 3).adjacent_points(0, 1)), 3)
+        self.assertEqual(len(Maze(3, 3).adjacent_cells(0, 1)), 3)
 
     def test_a_corner_has_two(self) -> None:
         maze = Maze(3, 3)
-        self.assertEqual(sorted(maze.adjacent_points(0, 0)),
+        self.assertEqual(sorted(maze.adjacent_cells(0, 0)),
                          [(0, 1), (1, 0)])
 
     def test_the_only_cell_of_a_1x1_maze_has_none(self) -> None:
-        self.assertEqual(Maze(1, 1).adjacent_points(0, 0), [])
+        self.assertEqual(Maze(1, 1).adjacent_cells(0, 0), [])
 
     def test_the_walls_are_ignored(self) -> None:
         """A closed maze and an open one answer the same thing."""
         closed = Maze(3, 3)
-        self.assertEqual(closed.adjacent_points(1, 1),
-                         self.open_maze(3, 3).adjacent_points(1, 1))
+        self.assertEqual(closed.adjacent_cells(1, 1),
+                         self.open_maze(3, 3).adjacent_cells(1, 1))
 
     def test_every_cell_returned_exists(self) -> None:
         maze = Maze(4, 3)
         for col, row in self.cells(maze):
-            for point in maze.adjacent_points(col, row):
-                self.assertTrue(maze._is_inside(*point))
+            for cell in maze.adjacent_cells(col, row):
+                self.assertTrue(cell in maze)
 
 
-class TestNeighboursPoints(MazeTest):
+class TestReachableCells(MazeTest):
     """Which cells can be reached, walls taken into account."""
 
     def test_a_closed_maze_reaches_nothing(self) -> None:
         maze = Maze(3, 3)
         for col, row in self.cells(maze):
-            self.assertEqual(maze.neighbours_points(col, row), [])
+            self.assertEqual(maze.reachable_cells(col, row), [])
 
     def test_an_open_passage_is_returned(self) -> None:
         maze = Maze(3, 3)
         maze.destroy_wall(1, 1, Direction.E)
-        self.assertEqual(maze.neighbours_points(1, 1), [(2, 1)])
+        self.assertEqual(maze.reachable_cells(1, 1), [(2, 1)])
 
     def test_several_open_passages(self) -> None:
         maze = Maze(3, 3)
         maze.destroy_wall(1, 1, Direction.E)
         maze.destroy_wall(1, 1, Direction.S)
-        self.assertEqual(sorted(maze.neighbours_points(1, 1)),
+        self.assertEqual(sorted(maze.reachable_cells(1, 1)),
                          [(1, 2), (2, 1)])
 
     def test_the_passage_works_both_ways(self) -> None:
         maze = Maze(3, 3)
         maze.destroy_wall(1, 1, Direction.E)
-        self.assertEqual(maze.neighbours_points(2, 1), [(1, 1)])
+        self.assertEqual(maze.reachable_cells(2, 1), [(1, 1)])
 
     def test_reachable_cells_are_adjacent_cells(self) -> None:
         maze = Maze(4, 3)
         maze.destroy_wall(1, 1, ALL_WALLS)
         for col, row in self.cells(maze):
-            self.assertLessEqual(set(maze.neighbours_points(col, row)),
-                                 set(maze.adjacent_points(col, row)))
+            self.assertLessEqual(set(maze.reachable_cells(col, row)),
+                                 set(maze.adjacent_cells(col, row)))
 
     def test_an_open_border_still_returns_no_outside_cell(self) -> None:
         """destroy_wall refuses it, but the grid is checked anyway."""
         maze = Maze(3, 3)
         maze.grid[0][0] &= ~Direction.N
-        self.assertEqual(maze.neighbours_points(0, 0), [])
+        self.assertEqual(maze.reachable_cells(0, 0), [])
 
     def test_the_only_cell_of_a_1x1_maze_reaches_nothing(self) -> None:
-        self.assertEqual(Maze(1, 1).neighbours_points(0, 0), [])
+        self.assertEqual(Maze(1, 1).reachable_cells(0, 0), [])
 
 
 class TestRandomCarving(MazeTest):
@@ -471,14 +502,14 @@ class TestRandomCarving(MazeTest):
         """If b can be reached from a, then a can be reached from b."""
         maze = self.carved()
         for col, row in self.cells(maze):
-            for point in maze.neighbours_points(col, row):
-                self.assertIn((col, row), maze.neighbours_points(*point))
+            for cell in maze.reachable_cells(col, row):
+                self.assertIn((col, row), maze.reachable_cells(*cell))
 
     def test_no_cell_outside_the_grid_is_ever_returned(self) -> None:
         maze = self.carved()
         for col, row in self.cells(maze):
-            for point in maze.neighbours_points(col, row):
-                self.assertTrue(maze._is_inside(*point))
+            for cell in maze.reachable_cells(col, row):
+                self.assertTrue(cell in maze)
 
     def test_something_was_actually_carved(self) -> None:
         """Guard against a test that would pass on an untouched maze."""

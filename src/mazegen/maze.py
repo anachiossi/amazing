@@ -127,6 +127,16 @@ class Maze:
     def get_dim(self) -> tuple[int, int]:
         return self.width, self.height
 
+    def __contains__(self, cell: tuple[int, int]) -> bool:
+        """Tell whether the cell belongs to the grid.
+
+        This is the public way to ask the question that _is_inside()
+        answers internally, so that it can be used by the generator,
+        the solver and the renderer.
+        """
+        col, row = cell
+        return self._is_inside(col, row)
+
     def _is_inside(self, col: int, row: int) -> bool:
         """Tell whether the cell belongs to the grid."""
         return 0 <= col < self.width and 0 <= row < self.height
@@ -231,21 +241,21 @@ class Maze:
             self.grid[col][row] &= ~side
             self.grid[neighbour_col][neighbour_row] &= ~side.opposite()
 
-    def adjacent_points(self, col: int, row: int) -> list[tuple[int, int]]:
+    def adjacent_cells(self, col: int, row: int) -> list[tuple[int, int]]:
         """List the cells that are adjacent to the given (col, row)
         regardless if the walls are present or not.
 
         """
         self._check_bounds(col, row)
-        points: list[tuple[int, int]] = []
+        cells: list[tuple[int, int]] = []
         for side in Direction:
             step_col, step_row = side.step()
             neighbour_col, neighbour_row = col + step_col, row + step_row
             if self._is_inside(neighbour_col, neighbour_row):
-                points.append((neighbour_col, neighbour_row))
-        return points
+                cells.append((neighbour_col, neighbour_row))
+        return cells
 
-    def neighbours_points(self, col: int, row: int) -> list[tuple[int, int]]:
+    def reachable_cells(self, col: int, row: int) -> list[tuple[int, int]]:
         """List the cells that are adjacent to the given (col, row)
         and for which there is an open passage. Which means that here
         walls are taken into consideration.
@@ -257,7 +267,7 @@ class Maze:
 
         """
         self._check_bounds(col, row)
-        points: list[tuple[int, int]] = []
+        cells: list[tuple[int, int]] = []
         for side in Direction:
             if self.get_wall(col, row, side):
                 #
@@ -274,5 +284,5 @@ class Maze:
             # guard to have regardless
             #
             if self._is_inside(neighbour_col, neighbour_row):
-                points.append((neighbour_col, neighbour_row))
-        return points
+                cells.append((neighbour_col, neighbour_row))
+        return cells
