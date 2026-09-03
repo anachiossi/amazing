@@ -17,6 +17,7 @@ On top of this class it is possible to build the rest:
 - the renderer, which read the maze to draw it
 """
 
+import random
 from enum import IntFlag
 
 
@@ -240,6 +241,37 @@ class Maze:
             #
             self.grid[col][row] &= ~side
             self.grid[neighbour_col][neighbour_row] &= ~side.opposite()
+
+    def randomize(self, probability: float = 0.5) -> None:
+        """Put every internal wall of the grid up or down at random.
+
+        Each wall is decided on its own: it stands with the given
+        probability and is opened otherwise. The walls of the external
+        border are never touched, so the invariant that the border stays
+        closed keeps holding.
+
+        Call random.seed() beforehand for a repeatable result.
+        """
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError(
+                f"probability must be between 0 and 1, got {probability}"
+            )
+        for col in range(self.width):
+            for row in range(self.height):
+                #
+                # Only the East and South sides are looked at, so that
+                # each wall is decided once instead of twice, once from
+                # each of the two cells that share it.
+                #
+                for side in (Direction.E, Direction.S):
+                    step_col, step_row = side.step()
+                    if (col + step_col, row + step_row) not in self:
+                        # A wall of the border, which always stays up.
+                        continue
+                    if random.random() < probability:
+                        self.build_wall(col, row, side)
+                    else:
+                        self.destroy_wall(col, row, side)
 
     def adjacent_cells(self, col: int, row: int) -> list[tuple[int, int]]:
         """List the cells that are adjacent to the given (col, row)

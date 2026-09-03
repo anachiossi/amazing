@@ -474,6 +474,69 @@ class TestReachableCells(MazeTest):
         self.assertEqual(Maze(1, 1).reachable_cells(0, 0), [])
 
 
+class TestRandomize(MazeTest):
+    """Every internal wall is thrown up or down on its own."""
+
+    def randomized(self, width: int, height: int,
+                   probability: float = 0.5) -> Maze:
+        """Return a randomized maze, with a fixed seed."""
+        random.seed(42)
+        maze = Maze(width, height)
+        maze.randomize(probability)
+        return maze
+
+    def test_the_walls_stay_coherent(self) -> None:
+        self.assert_coherent(self.randomized(6, 5))
+
+    def test_the_border_stays_closed(self) -> None:
+        self.assert_border_closed(self.randomized(6, 5))
+
+    def test_some_walls_are_up_and_some_are_down(self) -> None:
+        """Guard against a run that would close or open everything."""
+        maze = self.randomized(6, 5)
+        walls = [maze.get_wall(col, row, side)
+                 for col, row in self.cells(maze) for side in SIDES]
+        self.assertIn(True, walls)
+        self.assertIn(False, walls)
+
+    def test_a_probability_of_one_closes_every_cell(self) -> None:
+        maze = self.randomized(4, 3, 1.0)
+        for col, row in self.cells(maze):
+            self.assertTrue(maze.no_access(col, row))
+
+    def test_a_probability_of_zero_opens_every_internal_wall(self) -> None:
+        maze = self.randomized(4, 3, 0.0)
+        for col, row in self.cells(maze):
+            self.assertEqual(sorted(maze.reachable_cells(col, row)),
+                             sorted(maze.adjacent_cells(col, row)))
+
+    def test_the_starting_maze_does_not_matter(self) -> None:
+        """A carved maze and a fresh one are randomized the same way."""
+        carved = Maze(5, 4)
+        carved.destroy_wall(1, 1, ALL_WALLS)
+        carved.destroy_wall(2, 2, Direction.N)
+        random.seed(7)
+        carved.randomize()
+        random.seed(7)
+        fresh = Maze(5, 4)
+        fresh.randomize()
+        self.assertEqual(carved.grid, fresh.grid)
+
+    def test_the_same_seed_gives_the_same_maze(self) -> None:
+        self.assertEqual(self.randomized(5, 4).grid,
+                         self.randomized(5, 4).grid)
+
+    def test_a_1x1_maze_has_no_internal_wall(self) -> None:
+        maze = Maze(1, 1)
+        maze.randomize()
+        self.assertTrue(maze.no_access(0, 0))
+
+    def test_a_probability_outside_zero_and_one_is_refused(self) -> None:
+        for probability in (-0.1, 1.1, 2.0):
+            with self.assertRaises(ValueError):
+                Maze(3, 3).randomize(probability)
+
+
 class TestRandomCarving(MazeTest):
     """The invariants hold after a long run of random operations."""
 
