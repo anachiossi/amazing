@@ -40,8 +40,13 @@ classifiers = [
 [project.optional-dependencies]
 dev = ["flake8", "mypy"]
 
-# The reusable package lives under src/, so setuptools is told where to
-# look. Only mazegen is packaged: app/ and tests/ stay out of the wheel.
+# The reusable packages live under src/, so setuptools is told where to
+# look. app/ and tests/ stay out of the wheel.
+#
+# Two packages ship: mazegen, which is what the subject asks for, and
+# rainbow, the colour names the renderer draws with. rainbow is kept
+# here rather than installed from elsewhere so the project stands on
+# its own — "pip install -e ." is still all anyone needs.
 [tool.setuptools]
 package-dir = { "" = "src" }
 
