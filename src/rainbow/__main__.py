@@ -1,9 +1,14 @@
-"""Print the palette, kind by kind: ``python3 -m rainbow``.
+"""Prints the palette of colors, kind by kind. After installation can
+be excecuted with
 
-Five ribbons — the vivid colours, the dusty ones, the pale ones, the
-tinted greys and the greys — each running through the spectrum: red,
-orange, yellow, green, turquoise, blue, violet, magenta. Find one by
-eye, then ask for it by the name beside it.
+   $ python3 -m rainbow.
+
+The colors are printed in five groups: the vivid colours, the dusty
+ones, the pale ones, the tinted greys and the greys, each running
+through the spectrum: red, orange, yellow, green, turquoise, blue,
+violet, magenta.
+
+Useful when needing to pick a color.
 """
 
 from . import name, write

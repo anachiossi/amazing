@@ -1,28 +1,29 @@
-"""Colours for the terminal, chosen by name instead of by number.
+"""This package wraps basic writes to the terminal in order to select the
+**ink** the symbol is drawn in (foreground), and the **paper** behind
+it (background). Both the ink and the paper are specified with
+specific names instead of numbers.
 
-A terminal writes each character with two colours: the **ink** the
-symbol is drawn in, and the **paper** behind it. Both are asked for by
-number, 0 to 255, which nobody remembers. This package gives every one
-of those numbers a name.
+Basic Usage:
 
-    >>> from rainbow import ink, paper, write
-    >>> ink("vermilion")
-    '38;5;196'
-    >>> paper("blackberry")
-    '48;5;53'
-    >>> print(write("careful", ink="vermilion", paper="soot"))
+  >>> from rainbow import ink, paper, write
+  >>> ink("vermilion")
+  '38;5;196'
+  >>> paper("blackberry")
+  '48;5;53'
+  >>> print(write("careful", ink="vermilion", paper="soot"))
 
 Every colour is named after the pigment, paint or dye it is: the
 earths, the minerals, the plant lakes and the plain words painters
-have always used — ``vermilion``, ``ochre``, ``terreverte``,
-``ultramarine``, ``mauveine``, ``lampblack``. The sixteen a terminal
-has always had keep their old names: ``black``, ``red``, ``lime``…
+have always used such as vermilion, ochre, terreverte, ultramarine,
+mauveine, lampblack. There are also the sixteen classical colors for
+terminal such as black, red and so on.
 
-``python3 -m rainbow`` prints them all in their own colours, which is
-the quickest way to choose one.
+In order to choose a color, you can print all of them with the command
 
-Anywhere a name is asked for, a number does just as well, so
-``ink(196)`` and ``ink("vermilion")`` are the same thing.
+  $ python3 -m rainbow
+
+Notice that it is also possible to use numbers instead of names. So
+ink(196) is equivalent to ink("vermilion").
 """
 
 import difflib
