@@ -5,44 +5,99 @@ PYTHON  := python3
 MAIN    := a_maze_ing.py
 CONFIG  := config.txt
 
+# Everything runs inside a local virtualenv, so the machine's own
+# Python is never touched and a checkout only needs "make".
+VENV    := .venv
+VPYTHON := $(VENV)/bin/python
+# Written once the dependencies are in: the other targets depend on it,
+# so they install what they need the first time and skip it afterwards.
+STAMP   := $(VENV)/.installed
+
+# Colours for the help screen. ESC is built with printf so the escape
+# character is stored literally and any echo prints it as it is.
+ESC     := $(shell printf '\033')
+BOLD    := $(ESC)[1m
+DIM     := $(ESC)[2m
+CYAN    := $(ESC)[36m
+GREEN   := $(ESC)[32m
+YELLOW  := $(ESC)[33m
+RED     := $(ESC)[31m
+RESET   := $(ESC)[0m
+
 MYPY_FLAGS := --warn-return-any --warn-unused-ignores \
 	          --ignore-missing-imports --disallow-untyped-defs \
 	          --check-untyped-defs
 
-.PHONY: install run debug clean lint lint-strict test help
+.PHONY: install run debug clean fclean lint lint-strict test \
+        check-all help
 
+# First target of the file, so a bare "make" lands here.
 help:
-	@echo "install      install the project dependencies"
-	@echo "run          run the generator on $(CONFIG)"
-	@echo "debug        run it under pdb"
-	@echo "test         run the unit tests"
-	@echo "lint         flake8 + mypy with the required flags"
-	@echo "lint-strict  flake8 + mypy --strict"
-	@echo "clean        remove caches and build artefacts"
+	@printf '$(CYAN)$(BOLD)'
+	@printf '%s\n' \
+	'    ___         __  ___                       _' \
+	'   /   |       /  |/  /___ _____  ___        (_)___  ____ _' \
+	'  / /| |______/ /|_/ / __ `/_  / / _ \______/ / __ \/ __ `/' \
+	' / ___ /_____/ /  / / /_/ / / /_/  __/_____/ / / / / /_/ /' \
+	'/_/  |_|    /_/  /_/\__,_/ /___/\___/     /_/_/ /_/\__, /' \
+	'                                                  /____/'
+	@printf '$(RESET)$(DIM)%s$(RESET)\n\n' 'developed by anade-mo and ltamiano'
+	@printf '$(GREEN)$(BOLD)%s$(RESET)\n' 'Build and run'
+	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
+	'install' 'create $(VENV) and install the dependencies' \
+	'run'     'run the generator on $(CONFIG)' \
+	'debug'   'run it under pdb'
+	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Checks'
+	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
+	'check-all'   'run the tests and the strict linting, all at once' \
+	'test'        'run the unit tests' \
+	'lint'        'flake8 + mypy with the required flags' \
+	'lint-strict' 'flake8 + mypy --strict'
+	@printf '\n$(RED)$(BOLD)%s$(RESET)\n' 'Housekeeping'
+	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
+	'clean'  'remove caches and build artefacts' \
+	'fclean' 'clean, and remove $(VENV) as well'
 
-install:
-	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install flake8 mypy
-	$(PYTHON) -m pip install -e .
+install: $(STAMP)
 
-run:
-	$(PYTHON) $(MAIN) $(CONFIG)
+# Remade when pyproject.toml changes, since it is the only place the
+# dependencies are declared. "-e ." installs the package itself in
+# editable mode, "[dev]" adds the tools the checks need.
+$(STAMP): pyproject.toml
+	$(PYTHON) -m venv $(VENV)
+	$(VPYTHON) -m pip install --upgrade pip
+	$(VPYTHON) -m pip install -e .[dev]
+	touch $(STAMP)
 
-debug:
-	$(PYTHON) -m pdb $(MAIN) $(CONFIG)
+run: $(STAMP)
+	$(VPYTHON) $(MAIN) $(CONFIG)
 
-test:
-	$(PYTHON) -m unittest discover -s tests -t .
+debug: $(STAMP)
+	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)
 
-lint:
-	flake8 .
-	mypy . $(MYPY_FLAGS)
+test: $(STAMP)
+	$(VPYTHON) -m unittest discover -s tests -t .
 
-lint-strict:
-	flake8 .
-	mypy . --strict
+lint: $(STAMP)
+	$(VPYTHON) -m flake8 .
+	$(VPYTHON) -m mypy . $(MYPY_FLAGS)
+
+lint-strict: $(STAMP)
+	$(VPYTHON) -m flake8 .
+	$(VPYTHON) -m mypy . --strict
+
+# Everything at once, in the order that fails fastest: the tests first,
+# then the strictest linting. Make stops at the first command that
+# fails, so a green run means the whole project is in order.
+check-all: test lint-strict
+	@printf '$(GREEN)$(BOLD)%s$(RESET)\n' 'tests and strict linting: all good'
 
 clean:
 	rm -rf .mypy_cache .pytest_cache build dist *.egg-info
 	find . -type d -name __pycache__ -not -path "./mlx/*" \
 	      -exec rm -rf {} + 2>/dev/null || true
+
+# The virtualenv is rebuilt by any target that needs it, so removing it
+# is safe; kept apart from clean because rebuilding costs a download.
+fclean: clean
+	rm -rf $(VENV)
