@@ -134,17 +134,37 @@ animate(generator.carve(), plan, delay=0.02)
 | how big a drawing is — `drawing_size()` | renderer | its own arithmetic |
 | which width fits — `widest_that_fits()` | renderer | the same, backwards |
 | which skin suits a width — `skin_for()` | renderer | the other half of that answer |
-| how big the space is | `a_maze_ing.py` | environment read |
+| how big the space is | renderer, by default | the terminal is what it draws into |
 | what to do when nothing fits | `a_maze_ing.py` | error, exit 1 |
 
-Space is passed in, never looked up, so fitting stays pure — tests hand
-it a size, MLX will hand it a window. Cells: 3 and 2 use
-`STANDARD_SKIN`, 1 uses `BLOCKS` — `skin_for` sits next to
-`widest_that_fits` because that function can return 1, and a line skin
-drawn one character wide cannot turn a corner. Apart, the agreement
-between the two was written down nowhere. Lines do not scale (a cell is one
-line tall), so height either fits or nothing does; columns are the
-dial.
+Three things a caller may leave unsaid, each settled by the renderer:
+
+```python
+Drawing(fit=True)          # cell_width: the widest that fits the space
+Drawing(cell_width=2)      # skin:       the one that suits that width
+widest_that_fits(20, 15)   # space:      the terminal this runs in
+```
+
+**`fit` is off by default.** Fitting reads the terminal, and a drawing
+that did so unasked would come out differently in every window it was
+made in — the suite renders 59 drawings that must not depend on the
+window they run in. `render` calls `Drawing.fit_to(maze)` itself; it is
+public because whoever has to name the size *before* the drawing exists
+— the caption under the maze does — should get the same answer rather
+than working it out a second time.
+
+**`skin=None`** means "whatever suits `cell_width`", so a line skin
+cannot be paired with a one-character cell by omission; naming a skin
+wins. Cells 3 and 2 use `STANDARD_SKIN`, 1 uses `BLOCKS`. `skin_for`
+sits beside `widest_that_fits` because that function can return 1, and
+a line skin drawn one character wide cannot turn a corner; apart, the
+agreement between the two was written down nowhere.
+
+**Passing a space** still keeps the answer a pure calculation — tests
+hand it a size made up on the spot, and a window can hand it its own.
+
+Lines do not scale (a cell is one line tall), so height either fits or
+nothing does; columns are the dial.
 
 Earlier this arithmetic lived in `a_maze_ing.py` as well as the
 renderer and the two drifted twice. The decision still belongs to the

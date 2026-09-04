@@ -11,8 +11,12 @@ these tests run in. What is left in ``a_maze_ing.py`` is where the
 size comes from and what to do when nothing fits.
 """
 
+import os
 import re
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
+from unittest.mock import patch
 
 from app.render.terminal import (BLOCKS, CELL_WIDTH, COMPACT, STANDARD_SKIN,
                                  Drawing, Frame, TooSmall, drawing_size,
@@ -119,6 +123,121 @@ class FitTest(unittest.TestCase):
         self.assertIn(str(lines), message)
         self.assertIn("30", message)
         self.assertIn("10", message)
+
+
+class DefaultSpaceTest(unittest.TestCase):
+    """Left to itself, the renderer asks the terminal how big it is."""
+
+    @contextmanager
+    def fake_terminal(self, columns: int,
+                      lines: int) -> Iterator[None]:
+        """Stand in for the terminal the renderer would ask."""
+        with patch("shutil.get_terminal_size",
+                   return_value=os.terminal_size((columns, lines))):
+            yield
+
+    def test_no_space_reads_the_terminal(self) -> None:
+        """Omitting the space is the same as passing what it would read."""
+        for columns in (120, 70, 50):
+            with self.subTest(columns=columns):
+                with self.fake_terminal(columns, 40):
+                    self.assertEqual(
+                        widest_that_fits(20, 15),
+                        widest_that_fits(20, 15, (columns, 40)))
+
+    def test_a_space_given_wins_over_the_terminal(self) -> None:
+        """A caller with its own room is not overruled by the machine."""
+        with self.fake_terminal(40, 12):
+            self.assertEqual(widest_that_fits(20, 15, (200, 60)),
+                             CELL_WIDTH)
+
+    def test_a_terminal_too_small_still_raises(self) -> None:
+        """The failure is the same whether the size was read or given."""
+        with self.fake_terminal(30, 10):
+            with self.assertRaises(TooSmall):
+                widest_that_fits(20, 15)
+
+
+class DrawnWithTest(unittest.TestCase):
+    """Which skin a drawing is drawn with when it does not say."""
+
+    def test_a_drawing_that_says_nothing_gets_the_fitting_skin(self) -> None:
+        """The default follows the cell width, so the two cannot clash."""
+        self.assertIs(Drawing().drawn_with(), STANDARD_SKIN)
+        self.assertIs(Drawing(cell_width=COMPACT).drawn_with(),
+                      STANDARD_SKIN)
+        self.assertIs(Drawing(cell_width=1).drawn_with(), BLOCKS)
+
+    def test_a_skin_named_wins(self) -> None:
+        """Saying which skin is still saying it, at any width."""
+        self.assertIs(Drawing(cell_width=1, skin=STANDARD_SKIN).drawn_with(),
+                      STANDARD_SKIN)
+        self.assertIs(Drawing(cell_width=CELL_WIDTH,
+                              skin=BLOCKS).drawn_with(), BLOCKS)
+
+    def test_it_is_the_skin_the_drawing_is_made_of(self) -> None:
+        """Not just the answer: the symbols on screen follow it too.
+
+        A one-character cell drawn without naming a skin comes out in
+        blocks, which is the pairing this default exists to hold.
+        """
+        drawing = plain(render(Maze(3, 2), Drawing(cell_width=1)))
+        self.assertIn(BLOCKS.wall.joints[15], drawing)
+        self.assertNotIn(STANDARD_SKIN.wall.joints[15], drawing)
+
+
+class FittedDrawingTest(unittest.TestCase):
+    """A drawing asked to fit the space it is drawn into."""
+
+    def test_off_by_default(self) -> None:
+        """A drawing keeps the width it was given unless asked."""
+        plan = Drawing()
+        with patch("shutil.get_terminal_size",
+                   return_value=os.terminal_size((45, 40))):
+            self.assertEqual(plan.fit_to(Maze(20, 15)), CELL_WIDTH)
+        self.assertEqual(plan.cell_width, CELL_WIDTH)
+
+    def test_it_settles_the_width_against_the_space(self) -> None:
+        """With fit, the widest that fits wins over the default."""
+        for columns, expected in ((120, 3), (70, 2), (50, 1)):
+            with self.subTest(columns=columns):
+                plan = Drawing(fit=True)
+                with patch("shutil.get_terminal_size",
+                           return_value=os.terminal_size((columns, 40))):
+                    self.assertEqual(plan.fit_to(Maze(20, 15)), expected)
+                self.assertEqual(plan.cell_width, expected)
+
+    def test_the_width_is_kept_for_whoever_asks_after(self) -> None:
+        """The caption reads the same number that was drawn.
+
+        This is why ``fit_to`` is public: the message under the maze
+        is written before the maze is, and must not work the size out
+        a second time.
+        """
+        plan = Drawing(fit=True)
+        with patch("shutil.get_terminal_size",
+                   return_value=os.terminal_size((70, 40))):
+            plan.fit_to(Maze(20, 15))
+            drawn = plain(render(Maze(20, 15), plan)).split("\n")
+        self.assertEqual(
+            {len(line) for line in drawn},
+            {drawing_size(20, 15, plan.cell_width, plan.frame)[0]})
+
+    def test_rendering_fits_without_being_asked_first(self) -> None:
+        """``render`` settles it too, for a caller that does not care."""
+        with patch("shutil.get_terminal_size",
+                   return_value=os.terminal_size((50, 40))):
+            drawn = plain(render(Maze(20, 15), Drawing(fit=True)))
+        self.assertEqual(len(drawn.split("\n")[0]),
+                         drawing_size(20, 15, 1, FRAME)[0])
+
+    def test_no_room_at_any_width_raises(self) -> None:
+        """Nothing fits, so there is no drawing and no width to give."""
+        plan = Drawing(fit=True)
+        with patch("shutil.get_terminal_size",
+                   return_value=os.terminal_size((30, 10))):
+            with self.assertRaises(TooSmall):
+                plan.fit_to(Maze(20, 15))
 
 
 class SkinTierTest(unittest.TestCase):

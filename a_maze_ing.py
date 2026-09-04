@@ -4,22 +4,33 @@
 This file is the glue between the three parts that do not know each
 other: the configuration, the maze, and the renderer.
 
-The maze has no idea it will be looked at, and the renderer draws at
-whatever scale it is handed. What is left is the part neither of them
-can answer: how much room there actually is on the screen in front of
-the user, and what to do when there is not enough. Reading the
-terminal and giving up with an error are both this file's, so the
-arithmetic they feed stays testable without a terminal to run in.
+The maze has no idea it will be looked at, and the renderer knows the
+terminal it draws into — how wide a cell can be, which skin suits that
+width, and how much room the whole thing takes. What is left here is
+the one thing neither of them can decide: what should happen when the
+maze does not fit at all. This file answers that with a message and a
+non-zero exit.
 """
 
 import random
-import shutil
 import sys
 
 from app.config import MazeConfig, MazeConfigError
-from app.render.terminal import (COMPACT, FRAME, Drawing, TooSmall, show,
-                                 skin_for, widest_that_fits)
+from app.render.terminal import Drawing, TooSmall, show
 from mazegen import Maze
+
+
+def message_for(drawing: Drawing, config: MazeConfig) -> list[str]:
+    """The lines under the maze: what was asked for, and how it came out.
+
+    ``drawing`` is read after its width is settled, so the size named
+    here is the size on screen rather than the size hoped for.
+    """
+    seed = config.seed if config.seed is not None else "—"
+    shape = "perfect" if config.is_perfect else "braided"
+    return [f"{config.width}x{config.height} · {shape} · seed {seed}"
+            f" · {drawing.cell_width} wide",
+            "walls are randomize() for now — no generator yet"]
 
 
 def main() -> int:
@@ -42,24 +53,15 @@ def main() -> int:
     maze = Maze(config.width, config.height, config.entry, config.exit)
     maze.randomize(0.35)
 
+    drawing = Drawing(title="A-MAZE-ING", fit=True)
     try:
-        cell_width = widest_that_fits(config.width, config.height,
-                                      shutil.get_terminal_size(), FRAME)
+        drawing.fit_to(maze)
     except TooSmall as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
-    tier = {3: "full", COMPACT: "compact"}.get(cell_width, "blocks")
-    show(maze, Drawing(
-        title="A-MAZE-ING",
-        message=[f"{config.width}x{config.height} · "
-                 f"{'perfect' if config.is_perfect else 'braided'} · "
-                 f"seed {config.seed if config.seed is not None else '—'}"
-                 f" · {tier} ({cell_width} wide)",
-                 "walls are randomize() for now — no generator yet"],
-        skin=skin_for(cell_width),
-        cell_width=cell_width,
-    ))
+    drawing.message = message_for(drawing, config)
+    show(maze, drawing)
     return 0
 
 

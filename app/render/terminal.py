@@ -48,6 +48,7 @@ shows as the boxes it is made of, with no special element of its own.
 
 """
 
+import shutil
 import sys
 import time
 from dataclasses import dataclass, field, replace
@@ -242,6 +243,15 @@ class Drawing:
 
     The two ends are not here: they are the maze's, and ``render``
     reads them from it.
+
+    ``skin`` left alone means "whatever suits ``cell_width``", so a
+    line skin cannot be paired with a cell one character wide by
+    forgetting to say otherwise. Naming one still wins.
+
+    ``fit`` asks for the widest cell that fits the space instead of
+    the one named. It is off by default: fitting reads the terminal,
+    and a drawing that did so unasked would come out differently in
+    every window it was made in.
     """
 
     paths: Paths = ()
@@ -249,9 +259,37 @@ class Drawing:
     char2: Cell | None = None
     title: str = ""
     message: Sequence[str] = ()
-    skin: TerminalSkin = STANDARD_SKIN
+    skin: TerminalSkin | None = None
     frame: Frame = FRAME
     cell_width: int = CELL_WIDTH
+    fit: bool = False
+
+    def fit_to(self, maze: MazeView) -> int:
+        """Settle the cell width for that maze, and return it.
+
+        Without ``fit`` the width already named stands. With it, the
+        widest that fits the space is worked out and kept, so that
+        afterwards ``cell_width`` is what will actually be drawn.
+
+        ``render`` calls this itself. It is public because whoever
+        wants to say how big the drawing came out — a caption naming
+        the size, say — has to ask before the drawing is made, and
+        should get the same answer rather than working it out again.
+
+        Raises ``TooSmall`` when no width fits, which is the caller's
+        to answer: there is no drawing to make.
+        """
+        if self.fit:
+            width, height = maze.get_dim()
+            self.cell_width = widest_that_fits(width, height,
+                                               frame=self.frame)
+        return self.cell_width
+
+    def drawn_with(self) -> TerminalSkin:
+        """The skin named, or the one that suits the cell width."""
+        if self.skin is not None:
+            return self.skin
+        return skin_for(self.cell_width)
 
 
 def horizontal(maze: MazeView, col: int, row: int) -> bool:
@@ -388,7 +426,7 @@ def _horizontal_line(maze: MazeView, row: int, plan: Drawing,
     down.
     """
 
-    skin, cell_width = plan.skin, plan.cell_width
+    skin, cell_width = plan.drawn_with(), plan.cell_width
     width, height = maze.get_dim()
     out = []
     for col in range(width + 1):
@@ -418,7 +456,7 @@ def _centre_line(maze: MazeView, row: int, plan: Drawing,
     An opening here is in a wall that stands upright, so the path
     crosses it east to west.
     """
-    skin = plan.skin
+    skin = plan.drawn_with()
     width, _ = maze.get_dim()
     out = []
     for col in range(width + 1):
@@ -481,7 +519,7 @@ def _inside(col: int, row: int, plan: Drawing,
     A cell walled in on all four sides gets no special treatment: it
     is the walls around it that make the "42" show.
     """
-    skin, cell_width = plan.skin, plan.cell_width
+    skin, cell_width = plan.drawn_with(), plan.cell_width
     cell = (col, row)
     middle = cell_width // 2
     sides, element = links.get(cell, (0, None))
@@ -588,7 +626,8 @@ def drawing_size(width: int, height: int, cell_width: int = CELL_WIDTH,
             2 * height + 1 + frame.head + frame.tail)
 
 
-def widest_that_fits(width: int, height: int, space: tuple[int, int],
+def widest_that_fits(width: int, height: int,
+                     space: tuple[int, int] | None = None,
                      frame: Frame = FRAME,
                      widest: int = CELL_WIDTH) -> int:
     """Return the widest cell that draws that maze inside ``space``.
@@ -597,15 +636,20 @@ def widest_that_fits(width: int, height: int, space: tuple[int, int],
     same arithmetic as ``drawing_size``, asked backwards, which is why
     the two belong together.
 
-    ``space`` is handed in rather than looked up, so this stays a
-    calculation and not a question about the machine it runs on: a
-    caller asks the terminal, or a window, or makes a size up for a
-    test.
+    ``space`` left out means the terminal this is running in, which is
+    what a terminal renderer is drawing into and so is its own to ask.
+    Handing one in keeps the answer a calculation rather than a
+    question about the machine: tests pass a size made up on the spot,
+    and a window can pass its own.
 
     Nothing fits: ``TooSmall``, with what it would need and what there
     is, since that is the one thing whoever called can act on.
     """
-    columns, lines = space
+    if space is None:
+        size = shutil.get_terminal_size()
+        columns, lines = size.columns, size.lines
+    else:
+        columns, lines = space
     for cell_width in range(widest, 0, -1):
         needed = drawing_size(width, height, cell_width, frame)
         if needed[0] <= columns and needed[1] <= lines:
@@ -638,7 +682,8 @@ def skin_for(cell_width: int) -> TerminalSkin:
 def render(maze: MazeView, drawing: Drawing | None = None) -> str:
     """Draw a maze and return it as one string, ready to print."""
     plan = drawing or Drawing()
-    skin, frame = plan.skin, plan.frame
+    plan.fit_to(maze)
+    skin, frame = plan.drawn_with(), plan.frame
     width, height = maze.get_dim()
     canvas, _ = drawing_size(width, height, plan.cell_width, frame)
     links = paths_links(plan.paths, skin.paths, skin.meeting,
