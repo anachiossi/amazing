@@ -51,7 +51,9 @@ class MazeGenerator(ABC):
     # adding an algorithm is writing a class and nothing else.
     algorithms: dict[str, type["MazeGenerator"]] = {}
     name: str = ""
-    default: str = "backtracker"
+    # Kruskal's while it is the only one written; the backtracker takes
+    # this back when it lands, being the one that animates best.
+    default: str = "kruskal"
 
     # The maze being built. It exists only while ``carve`` runs, so it
     # is declared rather than assigned: there is no maze before then.
