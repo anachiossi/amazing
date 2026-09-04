@@ -69,6 +69,11 @@ Link = tuple[int, "JoinedElement"]
 # at 1 a square maze comes out flattened.
 CELL_WIDTH = 3
 
+# The narrowest cell the box-drawing skin still reads at. Below this
+# there is no room for a line to turn a corner, and ``skin_for`` hands
+# back the blocks instead.
+COMPACT = 2
+
 
 class MazeView(Protocol):
     """What a renderer is allowed to know about a maze.
@@ -596,6 +601,24 @@ def widest_that_fits(width: int, height: int, space: tuple[int, int],
         f"a {width}x{height} maze needs at least {needed[0]} columns "
         f"x {needed[1]} lines, and there are {columns} x {lines}"
     )
+
+
+def skin_for(cell_width: int) -> TerminalSkin:
+    """Return the skin that suits a cell of that width.
+
+    At one character wide a cell has no room for the box-drawing lines
+    to read, so the walls become solid blocks instead.
+
+    It sits beside ``widest_that_fits`` because the two are halves of
+    one answer: that function may hand back a width of 1, and a line
+    skin drawn that narrow is a drawing nobody can read. Apart, the
+    agreement between them is written down nowhere; together, it is
+    the next two lines.
+
+    A default and not a rule — ``Drawing.skin`` still takes whatever
+    skin the caller likes.
+    """
+    return STANDARD_SKIN if cell_width >= COMPACT else BLOCKS
 
 
 def render(maze: MazeView, drawing: Drawing | None = None) -> str:

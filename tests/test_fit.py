@@ -4,20 +4,19 @@ Run from the repository root::
 
     python3 -m unittest discover -s tests -t .
 
-How big a drawing is, and which cell width fits a given space, are the
-renderer's own arithmetic — asked of it here with a size made up on the
-spot, so nothing depends on the terminal these tests run in. What is
-left in ``a_maze_ing.py`` is where the size comes from and which skin
-suits it.
+How big a drawing is, which cell width fits a given space, and which
+skin suits that width are all the renderer's own — asked of it here
+with a size made up on the spot, so nothing depends on the terminal
+these tests run in. What is left in ``a_maze_ing.py`` is where the
+size comes from and what to do when nothing fits.
 """
 
 import re
 import unittest
 
-from a_maze_ing import COMPACT, skin_for
-from app.render.terminal import (BLOCKS, CELL_WIDTH, STANDARD_SKIN, Drawing,
-                                 Frame, TooSmall, drawing_size, render,
-                                 widest_that_fits)
+from app.render.terminal import (BLOCKS, CELL_WIDTH, COMPACT, STANDARD_SKIN,
+                                 Drawing, Frame, TooSmall, drawing_size,
+                                 render, skin_for, widest_that_fits)
 from mazegen import Maze
 
 FRAME = Frame(head=2, tail=3, sides=2)
@@ -133,6 +132,23 @@ class SkinTierTest(unittest.TestCase):
     def test_blocks_when_there_is_not(self) -> None:
         """One character wide has nowhere to draw a line."""
         self.assertIs(skin_for(1), BLOCKS)
+
+    def test_every_width_that_fits_gets_a_skin_that_reads(self) -> None:
+        """The pair holds across the whole range, not just at one size.
+
+        ``widest_that_fits`` may hand back 1, and a line skin drawn
+        that narrow has no room to turn a corner. This is the check
+        that the two agree — the reason they live side by side.
+        """
+        for columns in range(16, 96, 5):
+            for lines in range(10, 44, 3):
+                try:
+                    width = widest_that_fits(8, 5, (columns, lines), FRAME)
+                except TooSmall:
+                    continue
+                with self.subTest(columns=columns, lines=lines):
+                    self.assertIs(skin_for(width),
+                                  BLOCKS if width == 1 else STANDARD_SKIN)
 
     def test_the_block_skin_still_marks_the_ends(self) -> None:
         """A cell one character wide holds one symbol, so it keeps it."""

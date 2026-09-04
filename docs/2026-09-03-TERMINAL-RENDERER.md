@@ -121,12 +121,16 @@ animate(generator.carve(), plan, delay=0.02)
 |---|---|---|
 | how big a drawing is — `drawing_size()` | renderer | its own arithmetic |
 | which width fits — `widest_that_fits()` | renderer | the same, backwards |
+| which skin suits a width — `skin_for()` | renderer | the other half of that answer |
 | how big the space is | `a_maze_ing.py` | environment read |
 | what to do when nothing fits | `a_maze_ing.py` | error, exit 1 |
 
 Space is passed in, never looked up, so fitting stays pure — tests hand
 it a size, MLX will hand it a window. Cells: 3 and 2 use
-`STANDARD_SKIN`, 1 uses `BLOCKS`. Lines do not scale (a cell is one
+`STANDARD_SKIN`, 1 uses `BLOCKS` — `skin_for` sits next to
+`widest_that_fits` because that function can return 1, and a line skin
+drawn one character wide cannot turn a corner. Apart, the agreement
+between the two was written down nowhere. Lines do not scale (a cell is one
 line tall), so height either fits or nothing does; columns are the
 dial.
 

@@ -4,11 +4,12 @@
 This file is the glue between the three parts that do not know each
 other: the configuration, the maze, and the renderer.
 
-Choosing how big a cell is drawn belongs here, and nowhere else. The
-maze has no idea it will be looked at, and the renderer draws at
-whatever scale it is handed — "draw this maze this big" is all it
-knows. What is left, working out what actually fits on the screen in
-front of the user, is glue, so it lives with the other glue.
+The maze has no idea it will be looked at, and the renderer draws at
+whatever scale it is handed. What is left is the part neither of them
+can answer: how much room there actually is on the screen in front of
+the user, and what to do when there is not enough. Reading the
+terminal and giving up with an error are both this file's, so the
+arithmetic they feed stays testable without a terminal to run in.
 """
 
 import random
@@ -16,25 +17,9 @@ import shutil
 import sys
 
 from app.config import MazeConfig, MazeConfigError
-from app.render.terminal import (BLOCKS, FRAME, STANDARD_SKIN, Drawing,
-                                 TerminalSkin, TooSmall, show,
-                                 widest_that_fits)
+from app.render.terminal import (COMPACT, FRAME, Drawing, TooSmall, show,
+                                 skin_for, widest_that_fits)
 from mazegen import Maze
-
-# Below this, the box-drawing walls have nowhere to go and the blocks
-# skin takes over. Everything else about size is the renderer's.
-COMPACT = 2
-
-
-def skin_for(cell_width: int) -> TerminalSkin:
-    """Return the skin that suits a cell of that width.
-
-    The only decision left here: at one character wide a cell has no
-    room for the box-drawing lines to read, so the walls become solid
-    blocks. Which sizes exist and how big a drawing is are the
-    renderer's business — ``widest_that_fits`` answers that.
-    """
-    return STANDARD_SKIN if cell_width >= COMPACT else BLOCKS
 
 
 def main() -> int:
