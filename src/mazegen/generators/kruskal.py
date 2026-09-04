@@ -8,7 +8,7 @@ from ..maze import Maze
 
 
 class _Forest:
-    """The groups of already-joined cells, one tree each.
+    """Union-find: the groups of already-joined cells, one tree each.
 
     Kruskal's asks one question over and over: can these two cells
     already reach each other? Each group is held as a tree, and a cell
@@ -17,8 +17,6 @@ class _Forest:
     """
 
     def __init__(self) -> None:
-        # Both are filled in as cells are first asked about, so a maze
-        # of any size costs nothing until its cells come up.
         self._parent: dict[Cell, Cell] = {}
         self._size: dict[Cell, int] = {}
 
@@ -30,6 +28,7 @@ class _Forest:
         """
         self._parent.setdefault(cell, cell)
         self._size.setdefault(cell, 1)
+
         root = cell
         while self._parent[root] != root:
             root = self._parent[root]
@@ -40,18 +39,22 @@ class _Forest:
     def join(self, one: Cell, other: Cell) -> bool:
         """Join the two groups, and say whether they were apart.
 
-        ``False`` means they could already reach each other. That is
-        the whole test: joining them a second way would make a loop.
+        This method returns False if the cells could already reach
+        each other. It returns True if they could not.
         """
+
+        # If they have the same root, they are in the same group, and
+        # therefore they were able to reach eachothers before this call
         left, right = self._root(one), self._root(other)
         if left == right:
             return False
-        # The smaller group hangs off the larger, which is what keeps
-        # the trees from growing into a line.
+        
+        # The smaller group hangs off the larger
         if self._size[left] < self._size[right]:
             left, right = right, left
         self._parent[right] = left
         self._size[left] += self._size[right]
+        
         return True
 
 
@@ -60,18 +63,11 @@ class Kruskal(MazeGenerator):
 
     Every wall in the maze is considered once, shuffled. A wall comes
     down when the two cells it stands between cannot yet reach each
-    other; otherwise it stays, because taking it down would make a
-    second route between cells that already had one.
+    other.
 
-    The result is a spanning tree — every cell reachable, exactly one
-    route between any two — which is what ``PERFECT=True`` asks for.
-    ``_braid`` puts the loops back when it does not.
-
-    It works on the whole board at once rather than walking it, so the
-    maze appears everywhere at the same time: scattered fragments that
-    grow together. That is what tells it apart from the backtracker on
-    screen, and it is the reason it needs ``_Forest`` — there is no
-    path being walked to say what is joined to what.
+    The result is a spanning tree where every cell is reachable, and
+    between any two cells there exists exactly one path. This is what
+    PERFECT=True asks for.
     """
 
     name = "kruskal"
@@ -80,8 +76,27 @@ class Kruskal(MazeGenerator):
         """Take the walls in a random order, opening the ones that join."""
         joined = _Forest()
         walls = list(self.maze.internal_walls())
+
+        # Kruskal needs a specific order to look at the walls. Given
+        # that all walls are equal in the context of a Maze, we can
+        # shuffle it to get a random permutation of walls and use that.
         random.shuffle(walls)
+
+        # Lets iterate over all the walls of the maze
         for cell, side in walls:
-            if joined.join(cell, self.maze.across(*cell, side)):
-                self.maze.destroy_wall(*cell, side)
+
+            # We consider the current cell and the cell across the
+            # wall that we're currently analyzing
+            col, row = cell
+            cell_across = self.maze.across(col, row, side)
+
+            # if it was not possible to reach from one cell the other
+            # cell, then we break the wall in order to make it
+            # possible.
+            if joined.join(cell, cell_across):
+                self.maze.destroy_wall(col, row, side)
+                
+                # everytime we break a wall we yield the new updated
+                # maze. This is used for animation purposes in the
+                # renderer
                 yield self.maze

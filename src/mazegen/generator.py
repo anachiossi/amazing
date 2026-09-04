@@ -167,9 +167,10 @@ class MazeGenerator(ABC):
         two gaps per wall as it runs, so the loops are already there.
         """
         for cell in self.maze.dead_ends():
-            shut = self.maze.closed_walls(*cell)
+            col, row = cell
+            shut = self.maze.closed_walls(col, row)
             if shut:
-                self.maze.destroy_wall(*cell, random.choice(shut))
+                self.maze.destroy_wall(col, row, random.choice(shut))
                 yield self.maze
 
     def _loosen(self) -> Iterator[Maze]:
@@ -194,13 +195,14 @@ class MazeGenerator(ABC):
             chokes = self._choke_points()
             if not chokes:
                 return
+            entry_col, entry_row = self.config.entry_cell
             near = self.maze.region_of(
-                *self.config.entry_cell, banned=chokes[0])
+                entry_col, entry_row, banned=chokes[0])
             across = [(cell, side) for cell, side in self._closed_across(near)]
             if not across:
                 return  # walled in by the border: nothing to open
-            cell, side = random.choice(across)
-            self.maze.destroy_wall(*cell, side)
+            (col, row), side = random.choice(across)
+            self.maze.destroy_wall(col, row, side)
             yield self.maze
 
     # -----------------------------------------------------------------
@@ -208,16 +210,16 @@ class MazeGenerator(ABC):
 
     def _choke_points(self) -> list[Edge]:
         """Passages every route from entry to exit has to use."""
+        entry_col, entry_row = self.config.entry_cell
         return [edge for edge in self.maze.open_passages()
                 if self.config.exit_cell not in self.maze.region_of(
-                    *self.config.entry_cell, banned=edge)]
+                    entry_col, entry_row, banned=edge)]
 
     def _closed_across(self, near: frozenset[Cell]) -> list[tuple[Cell, Direction]]:
         """Walls standing between the cells in ``near`` and the rest."""
-        return [(cell, side)
+        return [((col, row), side)
                 for col in range(self.maze.width)
                 for row in range(self.maze.height)
-                for cell in ((col, row),)
-                for other, side in self.maze.neighbours(*cell)
-                if self.maze.get_wall(*cell, side)
-                and (cell in near) != (other in near)]
+                for other, side in self.maze.neighbours(col, row)
+                if self.maze.get_wall(col, row, side)
+                and ((col, row) in near) != (other in near)]
