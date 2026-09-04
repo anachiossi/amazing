@@ -1,4 +1,4 @@
-"""A tour of the terminal renderer:  python3 -m app.render.demo
+"""A tour of the terminal renderer:  python3 -m app.render.terminal_demo
 
 Every size the renderer draws at, then the same maze animated. It
 lives beside the renderer rather than inside it: nothing here is part

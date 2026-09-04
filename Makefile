@@ -66,7 +66,7 @@ help:
 	@printf '$(DIM)%s$(RESET)\n' \
 	'First time here: run "make install" once, then any target above.' \
 	'The package lives in src/, so outside $(VENV) it is not on the path:' \
-	'  PYTHONPATH=src python3 -m app.render.demo' \
+	'  PYTHONPATH=src python3 -m app.render.terminal_demo' \
 	'  PYTHONPATH=src python3 -m unittest discover -s tests -t .'
 
 install: $(STAMP)
@@ -90,7 +90,7 @@ debug: $(STAMP)
 # border, junctions, path, marks, title — and then the same maze
 # animated. It pauses once, before the animation.
 demo: $(STAMP)
-	$(VPYTHON) -m app.render.demo
+	$(VPYTHON) -m app.render.terminal_demo
 
 # The maze $(CONFIG) asks for, drawn at whatever size the terminal
 # can take: full cells if there is room, blocks if there is not. Same
