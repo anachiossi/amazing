@@ -21,6 +21,7 @@ DIM     := $(ESC)[2m
 CYAN    := $(ESC)[36m
 GREEN   := $(ESC)[32m
 YELLOW  := $(ESC)[33m
+MAGENTA := $(ESC)[35m
 RED     := $(ESC)[31m
 RESET   := $(ESC)[0m
 
@@ -28,8 +29,8 @@ MYPY_FLAGS := --warn-return-any --warn-unused-ignores \
 	          --ignore-missing-imports --disallow-untyped-defs \
 	          --check-untyped-defs
 
-.PHONY: install run debug clean fclean lint lint-strict test \
-        check-all help
+.PHONY: install run debug demo preview clean fclean lint lint-strict \
+        test check-all help
 
 # First target of the file, so a bare "make" lands here.
 help:
@@ -45,8 +46,12 @@ help:
 	@printf '$(GREEN)$(BOLD)%s$(RESET)\n' 'Build and run'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'install' 'create $(VENV) and install the dependencies' \
-	'run'     'run the generator on $(CONFIG)' \
+	'run'     'draw the maze $(CONFIG) asks for, fitted to the terminal' \
 	'debug'   'run it under pdb'
+	@printf '\n$(MAGENTA)$(BOLD)%s$(RESET)\n' 'Preview'
+	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
+	'demo'    'draw a maze step by step, then animate it' \
+	'preview' 'same as run: the maze fitted to this terminal'
 	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Checks'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'check-all'   'run the tests and the strict linting, all at once' \
@@ -57,6 +62,12 @@ help:
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'clean'  'remove caches and build artefacts' \
 	'fclean' 'clean, and remove $(VENV) as well'
+	@printf '\n'
+	@printf '$(DIM)%s$(RESET)\n' \
+	'First time here: run "make install" once, then any target above.' \
+	'The package lives in src/, so outside $(VENV) it is not on the path:' \
+	'  PYTHONPATH=src python3 -m app.render.terminal_demo' \
+	'  PYTHONPATH=src python3 -m unittest discover -s tests -t .'
 
 install: $(STAMP)
 
@@ -75,6 +86,16 @@ run: $(STAMP)
 debug: $(STAMP)
 	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)
 
+# The renderer drawn one step at a time — canvas, floor, walls,
+# border, junctions, path, marks, title — and then the same maze
+# animated. It pauses once, before the animation.
+demo: $(STAMP)
+	$(VPYTHON) -m app.render.terminal_demo
+
+# The maze $(CONFIG) asks for, drawn at whatever size the terminal
+# can take: full cells if there is room, blocks if there is not. Same
+# thing "run" does, since that is now all the program does.
+preview: run
 test: $(STAMP)
 	$(VPYTHON) -m unittest discover -s tests -t .
 
