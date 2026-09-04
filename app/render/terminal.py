@@ -48,9 +48,12 @@ shows as the boxes it is made of, with no special element of its own.
 
 """
 
+import re
 import shutil
 import sys
+import termios
 import time
+import tty
 from dataclasses import dataclass, field, replace
 from typing import Iterable, Protocol, Sequence
 
@@ -714,6 +717,59 @@ def show(maze: MazeView, drawing: Drawing | None = None) -> None:
     print(render(maze, drawing))
 
 
+def redraw(maze: MazeView, drawing: Drawing | None = None) -> None:
+    """Wipe the screen and print the maze, so the next frame sits on top."""
+    clear_screen()
+    show(maze, drawing)
+
+
+def read_key() -> str:
+    """Wait for one key, without requiring Enter."""
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+WALL_COLOURS = (
+    "chambray",
+    "vermilion",
+    "gamboge",
+    "peppermint",
+    "ultramarine",
+)
+
+
+def palette_line(maze: MazeView, drawing: Drawing) -> str:
+    """Numbered swatches, centred on the same canvas as the message."""
+    parts: list[str] = []
+    for index, name in enumerate(WALL_COLOURS, start=1):
+        swatch = rainbow.write("█", ink=name)
+        parts.append(f"{index} {swatch} {name}")
+    text = "  ".join(parts)
+    width, height = maze.get_dim()
+    columns, _ = drawing_size(width, height, drawing.cell_width,
+                              drawing.frame)
+    visible = len(re.sub(r"\033\[[0-9;]*m", "", text))
+    left = max(0, (columns - visible) // 2)
+    right = max(0, columns - left - visible)
+    return " " * left + text + " " * right
+
+
+def apply_wall_colour(drawing: Drawing, colour: str) -> None:
+    """Repaint interior walls and the border in that colour."""
+    base = drawing.drawn_with()
+    ink = rainbow.ink(colour)
+    drawing.skin = replace(
+        base,
+        wall=replace(base.wall, ink=ink),
+        border=replace(base.border, ink=ink),
+    )
+
+
 # ---------------------------------------------------------------------
 # Animation: the same drawing, again, over itself.
 
@@ -772,6 +828,5 @@ def animate(frames: Iterable[MazeView | AnimationFrame],
                      if reveal and plan.paths
                      else (AnimationFrame(maze, plan),))
         for snapshot in snapshots:
-            clear_screen()
-            show(snapshot.maze, snapshot.drawing)
+            redraw(snapshot.maze, snapshot.drawing)
             time.sleep(delay)

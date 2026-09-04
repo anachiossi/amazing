@@ -22,8 +22,9 @@ from mazegen import Direction, Maze
 
 from app.render.terminal import (CELL_WIDTH, STANDARD_SKIN, AnimationFrame,
                                  Drawing, Element, Frame, JoinedElement,
-                                 animate, clear_screen, horizontal, junction,
-                                 paint, path_frames, path_links, paths_links,
+                                 animate, clear_screen, drawing_size,
+                                 horizontal, junction, paint, palette_line,
+                                 path_frames, path_links, paths_links,
                                  render, show, vertical)
 
 SIDES = (Direction.N, Direction.E, Direction.S, Direction.W)
@@ -474,6 +475,19 @@ class FrameTest(TerminalTest):
         line = next(line for line in lines if "ready" in line)
         left = line.index("ready")
         self.assertLessEqual(abs(left - (len(line) - left - 5)), 1)
+
+    def test_the_colour_palette_is_centred(self) -> None:
+        """The C-key swatches sit on the same canvas as the message."""
+        maze = Maze(20, 15)
+        drawing = Drawing()
+        line = palette_line(maze, drawing)
+        visible = plain(line)
+        columns, _ = drawing_size(20, 15, drawing.cell_width, drawing.frame)
+        self.assertEqual(len(visible), columns)
+        stripped = visible.strip()
+        left = visible.index(stripped[0])
+        right = len(visible) - visible.rindex(stripped[-1]) - 1
+        self.assertLessEqual(abs(left - right), 1)
 
     def test_the_tail_is_reserved_when_empty(self) -> None:
         """The maze does not move when there is nothing to say."""

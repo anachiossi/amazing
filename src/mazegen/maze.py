@@ -428,3 +428,30 @@ class Maze:
                     seen.add(other)
                     queue.append(other)
         return frozenset(seen)
+
+    def random_path(self) -> list[tuple[int, int]]:
+        """A walk from entry to exit, not necessarily the shortest.
+
+        Neighbours are picked at random; the walk backtracks when it
+        runs out of unvisited passages. On a perfect maze that is the
+        only route; otherwise it is just one way through.
+        """
+        start = self.get_entry()
+        goal = self.get_exit()
+        if start is None or goal is None:
+            return []
+        path: list[tuple[int, int]] = [start]
+        seen = {start}
+        while path[-1] != goal:
+            col, row = path[-1]
+            options = [other for other, _side in self.passages(col, row)
+                       if other not in seen]
+            if not options:
+                path.pop()
+                if not path:
+                    return []
+                continue
+            nxt = random.choice(options)
+            seen.add(nxt)
+            path.append(nxt)
+        return path
