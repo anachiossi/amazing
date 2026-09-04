@@ -79,12 +79,9 @@ class Kruskal(MazeGenerator):
     def _run(self) -> Iterator[Maze]:
         """Take the walls in a random order, opening the ones that join."""
         joined = _Forest()
-        # Interior walls only, and none that would open into the "42".
-        walls = [(cell, side) for cell, side in self.maze.internal_walls()
-                 if self._is_free(cell)
-                 and self._is_free(self._step(*cell, side))]
+        walls = list(self.maze.internal_walls())
         random.shuffle(walls)
         for cell, side in walls:
-            if joined.join(cell, self._step(*cell, side)):
+            if joined.join(cell, self.maze.across(*cell, side)):
                 self.maze.destroy_wall(*cell, side)
                 yield self.maze

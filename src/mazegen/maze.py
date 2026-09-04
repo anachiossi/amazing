@@ -326,6 +326,13 @@ class Maze:
             else:
                 self.destroy_wall(col, row, side)
 
+    def across(self, col: int, row: int, side: Direction
+               ) -> tuple[int, int]:
+        """The cell that side leads to, even if it falls off the grid."""
+        self._check_bounds(col, row)
+        step_col, step_row = side.step()
+        return col + step_col, row + step_row
+
     def neighbours(self, col: int, row: int
                    ) -> list[tuple[tuple[int, int], Direction]]:
         """The cells beside this one, each with the side it lies through.
@@ -342,11 +349,18 @@ class Maze:
         self._check_bounds(col, row)
         cells: list[tuple[tuple[int, int], Direction]] = []
         for side in Direction:
-            step_col, step_row = side.step()
-            neighbour = (col + step_col, row + step_row)
+            neighbour = self.across(col, row, side)
             if neighbour in self:
                 cells.append((neighbour, side))
         return cells
+
+    def closed_walls(self, col: int, row: int) -> list[Direction]:
+        """Internal sides of that cell that are still walled.
+
+        The outer border is left out: there is no neighbour there.
+        """
+        return [side for other, side in self.neighbours(col, row)
+                if self.get_wall(col, row, side)]
 
     def passages(self, col: int, row: int
                  ) -> list[tuple[tuple[int, int], Direction]]:
@@ -377,16 +391,30 @@ class Maze:
         for col in range(self.width):
             for row in range(self.height):
                 for side in (Direction.E, Direction.S):
-                    step_col, step_row = side.step()
-                    if (col + step_col, row + step_row) in self:
+                    if self.across(col, row, side) in self:
                         yield (col, row), side
 
-    def region_of(self, col: int, row: int) -> frozenset[tuple[int, int]]:
+    def open_passages(self) -> set[frozenset[tuple[int, int]]]:
+        """Every open passage between two cells, each counted once."""
+        return {frozenset(((col, row), self.across(col, row, side)))
+                for (col, row), side in self.internal_walls()
+                if not self.get_wall(col, row, side)}
+
+    def dead_ends(self) -> list[tuple[int, int]]:
+        """Cells with one way in and out: three walls standing."""
+        return [(col, row)
+                for col in range(self.width)
+                for row in range(self.height)
+                if self.wall_count(col, row) == 3]
+
+    def region_of(self, col: int, row: int,
+                  banned: frozenset[tuple[int, int]] | None = None
+                  ) -> frozenset[tuple[int, int]]:
         """Every cell reachable from this one, walls taken into account.
 
-        Breadth-first, so it is also the cheapest way to ask whether
-        two cells are joined at all: the generator checks that the exit
-        can be got to, and the solver starts from the same question.
+        ``banned`` is one passage to pretend closed, so a choke point
+        can be told from an ordinary one. Breadth-first, so it is also
+        the cheapest way to ask whether two cells are joined at all.
         """
         self._check_bounds(col, row)
         seen = {(col, row)}
@@ -394,6 +422,8 @@ class Maze:
         while queue:
             cell = queue.popleft()
             for other, _side in self.passages(*cell):
+                if banned is not None and frozenset((cell, other)) == banned:
+                    continue
                 if other not in seen:
                     seen.add(other)
                     queue.append(other)

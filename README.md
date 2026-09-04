@@ -46,9 +46,10 @@ TODO: what part of the code is reusable and how. Must cover:
 
 ```python
 # TODO: replace with a working example
-from mazegen import MazeGenerator
+from mazegen import MazeGenerationConfig, MazeGenerator
 
-generator = MazeGenerator(20, 15, entry=(0, 0), exit=(19, 14))
+config = MazeGenerationConfig(20, 15, (0, 0), (19, 14))
+generator = MazeGenerator.from_config(config)
 maze = generator.generate()
 ```
 

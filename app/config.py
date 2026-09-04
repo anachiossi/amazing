@@ -2,6 +2,8 @@
 
 from typing import Any, cast
 
+from mazegen import MazeGenerationConfig
+
 
 class MazeConfigError(Exception):
     """Error raised when the config file or keys are invalid."""
@@ -181,6 +183,21 @@ class MazeConfig:
     def algorithm(self) -> str | None:
         """Requested generation algorithm, None if the file omits it."""
         return cast(str | None, self._config.get("algorithm"))
+
+    def to_generation_config(self) -> MazeGenerationConfig:
+        """The same values, as mazegen's settings object.
+
+        OUTPUT_FILE stays here: generation does not write the file.
+        """
+        return MazeGenerationConfig(
+            width=self.width,
+            height=self.height,
+            entry_cell=self.entry,
+            exit_cell=self.exit,
+            perfect=self.is_perfect,
+            seed=self.seed,
+            algorithm=self.algorithm,
+        )
 
     def show_config(self) -> None:
         print("Maze configuration:")

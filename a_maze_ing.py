@@ -33,6 +33,7 @@ def message_for(drawing: Drawing, config: MazeConfig,
             f" · {drawing.cell_width} wide",
             f"generated with {algorithm}"]
 
+# -------------------------------------------------------------------------------------------------------
 
 def main() -> int:
     """Read the config, build a maze, and draw it at the size that fits."""
@@ -48,23 +49,18 @@ def main() -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
-    # Which algorithm runs is the config file's to say, and an
-    # unknown name is its mistake rather than a crash.
+    # Instantiate proper maze generator class depending on config
     try:
-        generator = MazeGenerator.named(
-            config.algorithm,
-            width=config.width,
-            height=config.height,
-            entry=config.entry,
-            exit=config.exit,
-            perfect=config.is_perfect,
-            seed=config.seed,
-        )
+        generatorConfig = config.to_generation_config()
+        generator = MazeGenerator.from_config(generatorConfig)
     except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+
+    # Generate the maze
     maze = generator.generate()
 
+    # Render it
     drawing = Drawing(title="A-MAZE-ING", fit=True)
     try:
         drawing.fit_to(maze)
@@ -76,6 +72,7 @@ def main() -> int:
     show(maze, drawing)
     return 0
 
+# -------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     raise SystemExit(main())

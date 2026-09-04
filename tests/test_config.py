@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from app.config import MazeConfig, MazeConfigError
+from mazegen import MazeGenerationConfig
 
 VALID = """\
 # the default configuration, with a comment and a blank line
@@ -191,6 +192,31 @@ class TestEntryAndExit(MazeConfigTest):
         """EXIT=14,19 is out of bounds: 19 rows do not exist."""
         text = VALID.replace("EXIT=19,14", "EXIT=14,19")
         self.assertIn("EXIT", self.assert_rejected(text))
+
+
+class TestToGenerationConfig(MazeConfigTest):
+    """The file config becomes mazegen's settings object."""
+
+    def test_it_maps_every_generation_field(self) -> None:
+        config = self.load(VALID + "SEED=7\nALGORITHM=kruskal\n")
+        generation = config.to_generation_config()
+        self.assertIsInstance(generation, MazeGenerationConfig)
+        self.assertEqual(generation.width, 20)
+        self.assertEqual(generation.height, 15)
+        self.assertEqual(generation.entry_cell, (0, 0))
+        self.assertEqual(generation.exit_cell, (19, 14))
+        self.assertTrue(generation.perfect)
+        self.assertEqual(generation.seed, 7)
+        self.assertEqual(generation.algorithm, "kruskal")
+
+    def test_absent_optional_keys_stay_none(self) -> None:
+        generation = self.load(VALID).to_generation_config()
+        self.assertIsNone(generation.seed)
+        self.assertIsNone(generation.algorithm)
+
+    def test_output_file_is_not_copied(self) -> None:
+        generation = self.load(VALID).to_generation_config()
+        self.assertFalse(hasattr(generation, "output_file"))
 
 
 if __name__ == "__main__":

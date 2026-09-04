@@ -291,9 +291,17 @@ class TestBounds(MazeTest):
         with self.assertRaises(IndexError):
             self.maze.destroy_wall(9, 9, Direction.N)
 
+    def test_across(self) -> None:
+        with self.assertRaises(IndexError):
+            self.maze.across(3, 0, Direction.E)
+
     def test_neighbours(self) -> None:
         with self.assertRaises(IndexError):
             self.maze.neighbours(3, 0)
+
+    def test_closed_walls(self) -> None:
+        with self.assertRaises(IndexError):
+            self.maze.closed_walls(3, 0)
 
     def test_passages(self) -> None:
         with self.assertRaises(IndexError):
@@ -642,6 +650,67 @@ class TestRegionOf(MazeTest):
 
     def test_a_1x1_maze_is_its_own_region(self) -> None:
         self.assertEqual(Maze(1, 1).region_of(0, 0), {(0, 0)})
+
+    def test_a_banned_passage_is_treated_as_closed(self) -> None:
+        maze = Maze(3, 1)
+        maze.destroy_wall(0, 0, Direction.E)
+        maze.destroy_wall(1, 0, Direction.E)
+        banned = frozenset({(0, 0), (1, 0)})
+        self.assertEqual(maze.region_of(0, 0, banned=banned), {(0, 0)})
+        self.assertEqual(maze.region_of(1, 0, banned=banned), {(1, 0), (2, 0)})
+
+
+class TestAcross(MazeTest):
+    """The cell a side points at."""
+
+    def test_it_follows_the_side(self) -> None:
+        maze = Maze(3, 3)
+        self.assertEqual(maze.across(1, 1, Direction.E), (2, 1))
+        self.assertEqual(maze.across(1, 1, Direction.N), (1, 0))
+
+    def test_it_may_leave_the_grid(self) -> None:
+        maze = Maze(3, 3)
+        self.assertEqual(maze.across(0, 0, Direction.W), (-1, 0))
+        self.assertNotIn(maze.across(0, 0, Direction.W), maze)
+
+
+class TestClosedWalls(MazeTest):
+    """Internal sides still walled; the border is not listed."""
+
+    def test_a_closed_centre_has_four(self) -> None:
+        self.assertEqual(len(Maze(3, 3).closed_walls(1, 1)), 4)
+
+    def test_a_corner_omits_the_border(self) -> None:
+        self.assertEqual(set(Maze(3, 3).closed_walls(0, 0)),
+                         {Direction.E, Direction.S})
+
+    def test_an_open_centre_has_none(self) -> None:
+        self.assertEqual(self.open_maze(3, 3).closed_walls(1, 1), [])
+
+
+class TestDeadEnds(MazeTest):
+    """Cells with exactly three walls."""
+
+    def test_a_closed_maze_has_none(self) -> None:
+        self.assertEqual(Maze(3, 3).dead_ends(), [])
+
+    def test_the_ends_of_a_corridor(self) -> None:
+        maze = Maze(3, 1)
+        maze.destroy_wall(0, 0, Direction.E)
+        maze.destroy_wall(1, 0, Direction.E)
+        self.assertEqual(maze.dead_ends(), [(0, 0), (2, 0)])
+
+
+class TestOpenPassages(MazeTest):
+    """Open interior passages, each once."""
+
+    def test_a_closed_maze_has_none(self) -> None:
+        self.assertEqual(Maze(3, 3).open_passages(), set())
+
+    def test_each_opening_is_one_passage(self) -> None:
+        maze = Maze(2, 1)
+        maze.destroy_wall(0, 0, Direction.E)
+        self.assertEqual(maze.open_passages(), {frozenset({(0, 0), (1, 0)})})
 
 
 class TestWallCount(MazeTest):

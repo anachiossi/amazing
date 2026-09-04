@@ -2,15 +2,18 @@
 
 import unittest
 
-from mazegen import Direction, Maze, MazeGenerator
+from mazegen import Direction, Maze, MazeGenerationConfig, MazeGenerator
 from mazegen.generators.kruskal import Kruskal, _Forest
 
 
 def build(width: int = 12, height: int = 8, **settings: object) -> Kruskal:
     """A Kruskal generator of that size, seeded so a failure repeats."""
     settings.setdefault("seed", 42)
-    return Kruskal(width, height, (0, 0), (width - 1, height - 1),
-                   **settings)  # type: ignore[arg-type]
+    config = MazeGenerationConfig(
+        width, height, (0, 0), (width - 1, height - 1),
+        **settings,  # type: ignore[arg-type]
+    )
+    return Kruskal(config)
 
 
 def passage_count(maze: Maze) -> int:
@@ -57,20 +60,21 @@ class RegisteredTest(unittest.TestCase):
     def test_it_is_in_the_registry(self) -> None:
         self.assertIs(MazeGenerator.algorithms["kruskal"], Kruskal)
 
-    def test_named_builds_one(self) -> None:
-        generator = MazeGenerator.named(
-            "kruskal", width=5, height=5, entry=(0, 0), exit=(4, 4))
+    def test_from_config_builds_one(self) -> None:
+        generator = MazeGenerator.from_config(
+            MazeGenerationConfig(5, 5, (0, 0), (4, 4), algorithm="kruskal"))
         self.assertIsInstance(generator, Kruskal)
 
     def test_the_name_is_case_and_space_insensitive(self) -> None:
-        generator = MazeGenerator.named(
-            "  KRUSKAL ", width=5, height=5, entry=(0, 0), exit=(4, 4))
+        generator = MazeGenerator.from_config(
+            MazeGenerationConfig(5, 5, (0, 0), (4, 4), algorithm="  KRUSKAL "))
         self.assertIsInstance(generator, Kruskal)
 
     def test_an_unknown_name_says_which_there_are(self) -> None:
         with self.assertRaises(ValueError) as caught:
-            MazeGenerator.named(
-                "dijkstra", width=5, height=5, entry=(0, 0), exit=(4, 4))
+            MazeGenerator.from_config(
+                MazeGenerationConfig(5, 5, (0, 0), (4, 4),
+                                     algorithm="dijkstra"))
         self.assertIn("kruskal", str(caught.exception))
 
 
@@ -119,11 +123,7 @@ class BraidedMazeTest(unittest.TestCase):
                          self.width * self.height)
 
     def test_there_are_no_dead_ends(self) -> None:
-        dead = [(col, row)
-                for col in range(self.width)
-                for row in range(self.height)
-                if self.maze.wall_count(col, row) == 3]
-        self.assertEqual(dead, [])
+        self.assertEqual(self.maze.dead_ends(), [])
 
     def test_no_single_passage_cuts_the_exit_off(self) -> None:
         """What "at least two independent routes" comes down to."""
