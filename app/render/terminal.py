@@ -1,12 +1,9 @@
 """Minimalist rendering on terminal.
 
-It reads the maze through two methods only,
-``get_dim`` and ``get_wall``
-Only reads, no writes to Maze.
+The maze is read through two methods only, ``get_dim`` and
+``get_wall``. Only reads, never writes.
 
-Line by line, top to bottom, left to right.
-Appends to a string.
-
+Line by line, top to bottom, left to right, appended to a string.
 
 A maze of WIDTH x HEIGHT becomes ``2 * HEIGHT + 1`` lines::
 
@@ -32,23 +29,22 @@ already there.
 ├───┼───┤     B's E and D's S belong to no cell — nobody would ever
 │ C │ D │     draw them. They are the border, drawn first.
 └───┴───┘
-drop th
 
 What is around the maze
 -----------------------
 
-The maze sits in a **canvas**: an area with a head for
-the title and a tail for messages.
-
-
+The maze sits in a **canvas**: an area with a head for the title and
+a tail for messages.
 
 Colour
 ------
-Uncolored is not available.
-Element has a shape and a colour together.
-There are no backgrounds.
-The unnacessiblle cells inside the maze have a colorfull element.
 
+Uncoloured is not available: an ``Element`` is a shape and a colour
+together. Every colour is ink — there are no backgrounds, because one
+character holds one thing.
+
+A cell walled in on all four sides is drawn like any other; the "42"
+shows as the boxes it is made of, with no special element of its own.
 
 """
 
@@ -75,10 +71,12 @@ CELL_WIDTH = 3
 
 
 class MazeView(Protocol):
-    """Any renderer can only read from the maze.
+    """What a renderer is allowed to know about a maze.
 
-    Protocol ensure that the renderer only has access to the maze's data,
-    and cannot modify it.
+    A ``Protocol`` is a shape, not a base class: ``Maze`` satisfies it
+    by having these two methods and never hears of it. Declaring the
+    parameter as a ``MazeView`` is what keeps the renderer read-only —
+    mypy rejects any use of the maze beyond these two methods.
     """
 
     def get_dim(self) -> tuple[int, int]:
@@ -88,7 +86,6 @@ class MazeView(Protocol):
     def get_wall(self, col: int, row: int, direction: Direction) -> bool:
         """Does a wall exist on that side of the cell?"""
         ...
-
 
 
 @dataclass(frozen=True)
@@ -114,7 +111,7 @@ class Element:
 
 @dataclass(frozen=True)
 class JoinedElement(Element):
-    """The symbol dependes on the neigbours.
+    """The symbol depends on the neighbours.
 
     Walls, borders and the path are all drawn as lines, so which piece
     to use — ``─``, ``┐``, ``┼`` — is only known once the neighbours
@@ -157,10 +154,10 @@ class Frame:
 
 @dataclass(frozen=True)
 class TerminalSkin:
-    """Skins are a reusable sets of elements.
+    """A reusable set of elements.
 
-    A new look is a new instance of this class,
-    with the same elements but different symbols and colours.
+    A new look is a new instance of this class, with the same elements
+    but different symbols and colours.
     """
 
     floor: Element
@@ -196,7 +193,7 @@ STANDARD_SKIN = TerminalSkin(
     char2=Element("&", ink=rainbow.ink("flamingo")),
 )
 
-# This skin is creates a maze one char wide:
+# The skin for a maze one character wide:
 
 BLOCKS = TerminalSkin(
     floor=Element(" "),
@@ -220,11 +217,15 @@ FRAME = Frame()
 
 @dataclass
 class Drawing:
-    """Everything a rendering needs to draw"""
+    """Everything a rendering needs to draw.
+
+    ``paths`` is a list of routes, drawn one element each; a single
+    search is simply a list of one.
+    """
 
     entry: Cell | None = None
     exit: Cell | None = None
-    path: Sequence[Cell] = ()
+    paths: Paths = ()
     char1: Cell | None = None
     char2: Cell | None = None
     title: str = ""
@@ -232,46 +233,13 @@ class Drawing:
     skin: TerminalSkin = STANDARD_SKIN
     frame: Frame = FRAME
     cell_width: int = CELL_WIDTH
-    paths: Paths = ()
-
-    def path_sequences(self) -> Paths:
-        """Return the paths to draw, supporting one or several routes."""
-        return self.paths or ((self.path,) if self.path else ())
-
-
-@dataclass
-class AnimationFrame:
-    """One animation snapshot: maze state together with its drawing."""
-
-    maze: MazeView
-    drawing: Drawing = field(default_factory=Drawing)
-
-
-@dataclass
-class Animation:
-    """Animation state and the transitions it can produce."""
-
-    maze: MazeView
-    drawing: Drawing = field(default_factory=Drawing)
-
-    def path_frames(self) -> Iterable[AnimationFrame]:
-        """Yield snapshots that reveal the path one cell at a time."""
-        paths = self.drawing.path_sequences()
-        length = max((len(path) for path in paths), default=0)
-        for end in range(length + 1):
-            prefixes = tuple(path[:end] for path in paths)
-            step = replace(self.drawing,
-                           path=prefixes[0] if len(prefixes) == 1 else (),
-                           paths=prefixes)
-            yield AnimationFrame(self.maze, step)
 
 
 def horizontal(maze: MazeView, col: int, row: int) -> bool:
-    """Draw horizontal lines
+    """Is there a horizontal wall segment above cell (col, row)?
 
-    Create the N and Sborder of the maze first.
-    Then draw the north wall of each inner cell
-
+    The N and S edges of the maze are walled by definition; inside,
+    the segment is the north wall of the cell below it.
     """
     width, height = maze.get_dim()
     if not (0 <= col < width and 0 <= row <= height):
@@ -282,11 +250,10 @@ def horizontal(maze: MazeView, col: int, row: int) -> bool:
 
 
 def vertical(maze: MazeView, col: int, row: int) -> bool:
-    """Draw vertical lines.
+    """Is there an upright wall segment left of cell (col, row)?
 
-    Create the E and W border of the maze first.
-    Then draw the west wall of each inner cell.
-
+    The W and E edges of the maze are walled by definition; inside,
+    the segment is the west wall of the cell to its right.
     """
     width, height = maze.get_dim()
     if not (0 <= row < height and 0 <= col <= width):
@@ -388,7 +355,7 @@ def junction(maze: MazeView, col: int, row: int,
 
 
 def _horizontal_line(maze: MazeView, row: int, plan: Drawing,
-               links: dict[Cell, Link]) -> str:
+                     links: dict[Cell, Link]) -> str:
     """Return the horizontal line that runs above a row of cells.
 
     Every junction, and between them the wall that the cell above and
@@ -415,8 +382,8 @@ def _horizontal_line(maze: MazeView, row: int, plan: Drawing,
             out.append(paint(element.straight(Direction.E) * cell_width,
                              element))
         else:
-            out.append(_opening(skin, cell_width,
-                            _crossing(links, (col, row), Direction.N)))
+            out.append(_opening(skin, cell_width, Direction.N,
+                                _crossing(links, (col, row), Direction.N)))
     return "".join(out)
 
 
@@ -440,11 +407,11 @@ def _centre_line(maze: MazeView, row: int, plan: Drawing,
             element = skin.border if col in (0, width) else skin.wall
             out.append(paint(element.straight(Direction.N), element))
         else:
-            out.append(_opening(skin, 1,
-                            _crossing(links, (col, row), Direction.W)))
+            out.append(_opening(skin, 1, Direction.W,
+                                _crossing(links, (col, row), Direction.W)))
         if col == width:
             break
-        out.append(_inside(maze, col, row, plan, links, marks))
+        out.append(_inside(col, row, plan, links, marks))
     return "".join(out)
 
 
@@ -478,25 +445,22 @@ def line(maze: MazeView, char_row: int, plan: Drawing,
     return _horizontal_line(maze, row, plan, links)
 
 
-def _inside(maze: MazeView, col: int, row: int, plan: Drawing,
+def _inside(col: int, row: int, plan: Drawing,
             links: dict[Cell, Link],
             marks: dict[Cell, Element]) -> str:
     """Return the inside of one cell: everything that is not a wall.
 
-    A sealed cell is the whole of the "42" and holds nothing else, so
-    it is filled and done with. Anything else is three pieces — the
-    middle, where a mark or the path stands, and a stretch either side
-    of it where the path runs out towards the cells it links to::
+    Three pieces — the middle, where a mark or the path stands, and a
+    stretch either side of it where the path runs out towards the
+    cells it links to::
 
         "   "    nothing here
         " E "    entry symbol stands here
         "───"    the path runs straight through
         "─╮ "    the path arrives from the west and turns south
-        "███"    the cell is sealed: the "42"
 
-    A mark is drawn even on a sealed cell. That should never happen —
-    nobody can reach one — so seeing an E walled inside the pattern is
-    worth more than a tidy picture.
+    A cell walled in on all four sides gets no special treatment: it
+    is the walls around it that make the "42" show.
     """
     skin, cell_width = plan.skin, plan.cell_width
     cell = (col, row)
@@ -532,18 +496,22 @@ def _stretch(span: int, skin: TerminalSkin,
     return paint(path.straight(Direction.E) * span, path)
 
 
-def _opening(skin: TerminalSkin, span: int,
+def _opening(skin: TerminalSkin, span: int, through: Direction,
              crossing: JoinedElement | None) -> str:
-    """What to draw where a wall is missing"
+    """What to draw where a wall is missing: the path, or the floor.
 
-    The path or the floor.
+    ``through`` is the way the opening is passed: north for a gap in a
+    wall that runs across, west for a gap in one that stands upright.
+    It is the caller's to say — at a cell one character wide the two
+    kinds of opening are the same width, so the span cannot tell them
+    apart.
     """
     if crossing is None:
         return paint(skin.floor.symbol * span, skin.floor)
-    line = crossing.straight(Direction.E if span == 1 else Direction.N)
+    piece = crossing.straight(through)
     middle = span // 2
     return (paint(skin.floor.symbol * middle, skin.floor)
-            + paint(line, crossing)
+            + paint(piece, crossing)
             + paint(skin.floor.symbol * (span - middle - 1), skin.floor))
 
 
@@ -568,7 +536,7 @@ def _crossing(links: dict[Cell, Link], cell: Cell,
     return None
 
 
-def band(text: str, width: int, element: Element, skin: TerminalSkin) -> str:
+def band(text: str, width: int, element: Element) -> str:
     """Return one line of canvas, with the text centred on it."""
     text = text[:width]
     left = (width - len(text)) // 2
@@ -635,9 +603,8 @@ def render(maze: MazeView, drawing: Drawing | None = None) -> str:
     plan = drawing or Drawing()
     skin, frame = plan.skin, plan.frame
     width, height = maze.get_dim()
-    inner = width * (plan.cell_width + 1) + 1
-    links = paths_links(plan.path_sequences(), skin.paths, skin.meeting,
-                        plan.exit)
+    canvas, _ = drawing_size(width, height, plan.cell_width, frame)
+    links = paths_links(plan.paths, skin.paths, skin.meeting, plan.exit)
     marks: dict[Cell, Element] = {}
     for cell, element in ((plan.char1, skin.char1), (plan.char2, skin.char2),
                           (plan.entry, skin.entry), (plan.exit, skin.exit)):
@@ -648,15 +615,13 @@ def render(maze: MazeView, drawing: Drawing | None = None) -> str:
             for char_row in range(2 * height + 1)]
 
     side = " " * frame.sides
-    out = [band("", inner + 2 * frame.sides, skin.title, skin)
-           for _ in range(frame.head)]
+    out = [band("", canvas, skin.title) for _ in range(frame.head)]
     if plan.title and frame.head:
-        out[frame.head // 2] = band(plan.title, inner + 2 * frame.sides,
-                                    skin.title, skin)
+        out[frame.head // 2] = band(plan.title, canvas, skin.title)
     out.extend(side + drawn + side for drawn in body)
     for index in range(frame.tail):
         text = plan.message[index] if index < len(plan.message) else ""
-        out.append(band(text, inner + 2 * frame.sides, skin.message, skin))
+        out.append(band(text, canvas, skin.message))
     return "\n".join(out)
 
 
@@ -669,6 +634,26 @@ def show(maze: MazeView, drawing: Drawing | None = None) -> None:
 # Animation: the same drawing, again, over itself.
 
 
+@dataclass
+class AnimationFrame:
+    """One animation snapshot: maze state together with its drawing."""
+
+    maze: MazeView
+    drawing: Drawing = field(default_factory=Drawing)
+
+
+def path_frames(maze: MazeView, drawing: Drawing) -> Iterable[AnimationFrame]:
+    """Yield snapshots that reveal every path one cell at a time.
+
+    Each route grows by a cell per frame, which is what makes two
+    halves of a bidirectional search meet on screen.
+    """
+    length = max((len(path) for path in drawing.paths), default=0)
+    for end in range(length + 1):
+        prefixes = tuple(path[:end] for path in drawing.paths)
+        yield AnimationFrame(maze, replace(drawing, paths=prefixes))
+
+
 def clear_screen() -> None:
     """Send the cursor home and wipe what is on the screen."""
     sys.stdout.write("\033[H\033[J")
@@ -679,105 +664,30 @@ def animate(frames: Iterable[MazeView | AnimationFrame],
             delay: float = 0.05, reveal: bool = True) -> None:
     """Draw one maze after another in place, as a moving picture.
 
-    ``frames`` may be maze states, or snapshots containing a maze and its
-    own drawing. Maze-only frames use the shared ``drawing`` argument.
-    When the shared drawing contains a path, each maze state reveals
-    that path one cell at a time — unless ``reveal`` is False, which
-    draws the frame as it is. That is how a finished route is held on
-    screen: without it every call would grow the path again from
-    nothing.
-    A generator that yields itself after each change:
+    ``frames`` may be maze states, or snapshots containing a maze and
+    its own drawing. Maze-only frames use the shared ``drawing``
+    argument. When a drawing has paths, each maze state reveals them a
+    cell at a time — unless ``reveal`` is False, which draws the frame
+    as it is. That is how a finished route is held on screen: without
+    it every call would grow the path again from nothing.
+
+    A generator that yields itself after each change animates too::
 
         animate(generator.carve(), delay=0.02)
 
     The screen is cleared between frames rather than after, so what is
     left on screen at the end is the finished maze.
     """
+    shared = drawing or Drawing()
     for frame in frames:
         if isinstance(frame, AnimationFrame):
-            maze, frame_drawing = frame.maze, frame.drawing
+            maze, plan = frame.maze, frame.drawing
         else:
-            maze, frame_drawing = frame, drawing
-        frame_drawing = frame_drawing or Drawing()
-        path_animation = reveal and bool(frame_drawing.path_sequences())
-        snapshots = (Animation(maze, frame_drawing).path_frames()
-                     if path_animation
-                     else (AnimationFrame(maze, frame_drawing),))
+            maze, plan = frame, shared
+        snapshots = (path_frames(maze, plan)
+                     if reveal and plan.paths
+                     else (AnimationFrame(maze, plan),))
         for snapshot in snapshots:
             clear_screen()
             show(snapshot.maze, snapshot.drawing)
             time.sleep(delay)
-
-
-# ---------------------------------------------------------------------
-# A demo:  python3 -m app.render.terminal
-
-
-def _demo() -> None:
-    """Draw a maze at each size, then animate the way through it.
-
-    The maze is Leo's ``randomize()``: every wall thrown on its own,
-    with no promise that anywhere can be reached from anywhere. Seed
-    168 is one where the two corners happen to be joined, and the way
-    between them is written out below — until there is a solver to ask,
-    a route has to be known in advance to be drawn.
-    """
-    import random
-
-    from mazegen import Maze
-
-    random.seed(168)
-    maze = Maze(10, 5)
-    maze.randomize(0.35)
-    entry, exit = (0, 0), (9, 4)
-
-    # The way from one corner to the other through that maze. It holds
-    # only for seed 168 at that size: change either and it is nonsense,
-    # which is what a solver will save us from.
-    solved = [(0, 0), (1, 0), (1, 1), (1, 2), (2, 2), (2, 3), (2, 4),
-              (3, 4), (3, 3), (3, 2), (4, 2), (4, 1), (5, 1), (6, 1),
-              (7, 1), (7, 0), (8, 0), (9, 0), (9, 1), (9, 2), (9, 3),
-              (9, 4)]
-
-    for caption, cell_width, skin in (
-            ("full — walls, symbols, room to breathe", 3, STANDARD_SKIN),
-            ("compact — the same, tighter", 2, STANDARD_SKIN),
-            ("blocks — a cell is one character", 1, BLOCKS)):
-        print(f"\n{caption}\n")
-        show(maze, Drawing(entry=entry, exit=exit, paths=[solved],
-                           title="A-MAZE-ING", message=[caption],
-                           skin=skin, cell_width=cell_width))
-
-    try:
-        input("\npress enter to run the animations ")
-    except EOFError:
-        # Nothing on the input: the drawings above are all that was
-        # wanted.
-        return
-
-    # The maze stands with its two ends; then one search walks it; then
-    # two do, from both ends at once. There is no carving to watch yet —
-    # randomize() throws every wall at once, so there is no order to it;
-    # that beat arrives with the generator.
-    ends = Drawing(entry=entry, exit=exit, title="A-MAZE-ING",
-                   message=["the way in, and the way out"])
-    animate((maze,), ends, delay=1.0)
-
-    animate((maze,), replace(ends, paths=[solved],
-                             message=["one search, from the entry"]),
-            delay=0.12)
-    animate((maze,), replace(ends, paths=[solved], message=["solved"]),
-            delay=1.5, reveal=False)
-
-    half = len(solved) // 2 + 1
-    from_entry, from_exit = solved[:half], solved[half - 1:][::-1]
-    animate((maze,), replace(ends, paths=[from_entry, from_exit],
-                             message=["two searches, meeting in the "
-                                      "middle"]), delay=0.12)
-    animate((maze,), replace(ends, paths=[from_entry, from_exit, solved],
-                             message=["solved"]),
-            delay=0.0, reveal=False)
-
-
-if __name__ == "__main__":
-    _demo()

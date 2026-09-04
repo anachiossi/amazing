@@ -20,11 +20,11 @@ from itertools import product
 
 from mazegen import Direction, Maze
 
-from app.render.terminal import (CELL_WIDTH, STANDARD_SKIN, Animation,
-                                 AnimationFrame, Drawing, Element, Frame,
-                                 JoinedElement, animate, clear_screen,
-                                 horizontal, junction, paint, path_links,
-                                 paths_links, render, show, vertical)
+from app.render.terminal import (CELL_WIDTH, STANDARD_SKIN, AnimationFrame,
+                                 Drawing, Element, Frame, JoinedElement,
+                                 animate, clear_screen, horizontal, junction,
+                                 paint, path_frames, path_links, paths_links,
+                                 render, show, vertical)
 
 SIDES = (Direction.N, Direction.E, Direction.S, Direction.W)
 
@@ -612,11 +612,9 @@ class AnimationTest(TerminalTest):
         """
         maze = self.open_maze(4, 1)
         path = [(0, 0), (1, 0), (2, 0), (3, 0)]
-        frames = list(Animation(maze, Drawing(paths=[path])).path_frames())
+        frames = list(path_frames(maze, Drawing(paths=[path])))
         self.assertEqual(len(frames), len(path) + 1)
-        lengths = [len(frame.drawing.path_sequences()[0])
-                   if frame.drawing.path_sequences() else 0
-                   for frame in frames]
+        lengths = [len(frame.drawing.paths[0]) for frame in frames]
         self.assertEqual(lengths, [0, 1, 2, 3, 4])
 
 

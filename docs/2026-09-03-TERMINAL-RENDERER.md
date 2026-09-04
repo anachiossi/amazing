@@ -102,7 +102,7 @@ animate(frames, drawing=None, delay=0.05, reveal=True)
 
 A frame is a `MazeView`, or an `AnimationFrame` carrying its own
 `Drawing`. With `reveal`, a drawing that has paths is expanded by
-`Animation.path_frames()` — every path grows a cell per frame, which is
+`path_frames(maze, drawing)` — every path grows a cell per frame, which is
 what makes two halves meet. `reveal=False` draws the frame as it is;
 needed to hold a finished route, since otherwise every call regrows it.
 
@@ -158,8 +158,8 @@ Without the venv, prefix with `PYTHONPATH=src` — `mazegen` and
 
 ## Stopgaps
 
-`_carve` (recursive backtracker) and `_solve` (BFS) sit at the foot of
-`terminal.py` so the demo has a real maze and a real route to draw.
-They use only `Maze`'s public API and are not part of the renderer —
-they go when the generator and solver land. `_carving` already yields
-after each wall opened, which is the shape `animate` expects.
+`app/render/demo.py` (`make demo`) draws a `randomize()` maze and a
+route written out by hand for seed 168 at 10x5 — change either and the
+route is nonsense. It lives beside the renderer rather than inside it,
+and it goes when the generator and solver land: `animate` already takes
+a generator that yields itself after each wall opened.
