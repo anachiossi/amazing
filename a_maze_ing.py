@@ -28,8 +28,8 @@ def main() -> int:
         print("Usage: python3 a_maze_ing.py config.txt", file=sys.stderr)
         return 1
     file_path: str = sys.argv[1]
-    # Only the call that can fail is wrapped, so a bug further down is
-    # not mistaken for a bad configuration file.
+
+    # Read parameters for maze generation
     try:
         config = MazeConfig(file_path)
     except MazeConfigError as error:
@@ -39,7 +39,7 @@ def main() -> int:
     # There is no generator yet, so the walls come from randomize():
     # a board with no connectivity, which is enough to look at.
     random.seed(42 if config.seed is None else config.seed)
-    maze = Maze(config.width, config.height)
+    maze = Maze(config.width, config.height, config.entry, config.exit)
     maze.randomize(0.35)
 
     try:
@@ -51,8 +51,6 @@ def main() -> int:
 
     tier = {3: "full", COMPACT: "compact"}.get(cell_width, "blocks")
     show(maze, Drawing(
-        entry=config.entry,
-        exit=config.exit,
         title="A-MAZE-ING",
         message=[f"{config.width}x{config.height} · "
                  f"{'perfect' if config.is_perfect else 'braided'} · "

@@ -11,11 +11,23 @@ the generator is written, before MiniLibX.
 ```python
 maze.get_dim()                      # (width, height)
 maze.get_wall(col, row, direction)  # True when closed
+maze.get_entry()                    # cell, or None
+maze.get_exit()                     # cell, or None
 ```
 
 Nothing else is read; `grid` is never touched. Stated as a `Protocol`
-(`MazeView`) so mypy enforces it. Per §4.4 this does not change without
-an issue first.
+(`MazeView`) so mypy enforces it.
+
+**Widened from two methods to four (2026-09-04).** The ends used to be
+handed to the renderer on the `Drawing`; they are the maze's now, since
+the solver walks between them and the subject's file format writes them
+in its footer beside the grid — a drawing carrying its own copy could
+disagree with the maze it was drawn from. `Drawing.entry` and
+`Drawing.exit` are gone rather than kept as overrides: if marking an
+arbitrary cell is wanted later it should get its own explicit
+abstraction, not a second meaning for these two. §4.4 fixes the meeting
+point at `get_dim` and `get_wall`, so this needs an issue against the
+minutes.
 
 `tests/fake_maze.py` deleted — `Maze.randomize()` covers what it was
 for.
@@ -88,7 +100,7 @@ Sides add up where routes share a cell. **Solved** — routes sharing a
 cell, or any route reaching `goal` — draws *every* cell of *every* path
 in `meeting`. So bidirectional search is two colours until the halves
 touch and one colour from that frame on, and a single search turns on
-arrival. `Drawing.exit` supplies `goal`.
+arrival. `Maze.get_exit()` supplies `goal`.
 
 The sides of a cell index the same 16 pieces the walls use, so a bend
 in a route is chosen exactly as a bend in a wall is; the path skin uses

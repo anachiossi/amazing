@@ -24,9 +24,9 @@ def main() -> None:
     a route has to be known in advance to be drawn.
     """
     random.seed(168)
-    maze = Maze(10, 5)
-    maze.randomize(0.35)
     entry, exit = (0, 0), (9, 4)
+    maze = Maze(10, 5, entry, exit)
+    maze.randomize(0.35)
 
     # The way from one corner to the other through that maze. It holds
     # only for seed 168 at that size: change either and it is nonsense,
@@ -41,7 +41,7 @@ def main() -> None:
             ("compact — the same, tighter", 2, STANDARD_SKIN),
             ("blocks — a cell is one character", 1, BLOCKS)):
         print(f"\n{caption}\n")
-        show(maze, Drawing(entry=entry, exit=exit, paths=[solved],
+        show(maze, Drawing(paths=[solved],
                            title="A-MAZE-ING", message=[caption],
                            skin=skin, cell_width=cell_width))
 
@@ -56,7 +56,7 @@ def main() -> None:
     # two do, from both ends at once. There is no carving to watch yet —
     # randomize() throws every wall at once, so there is no order to it;
     # that beat arrives with the generator.
-    ends = Drawing(entry=entry, exit=exit, title="A-MAZE-ING",
+    ends = Drawing(title="A-MAZE-ING",
                    message=["the way in, and the way out"])
     animate((maze,), ends, delay=1.0)
 

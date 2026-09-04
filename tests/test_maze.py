@@ -182,6 +182,87 @@ class TestContains(MazeTest):
         self.assertFalse((1, 0) in maze)
 
 
+class TestEnds(MazeTest):
+    """Entry and exit: the two cells the maze is walked between."""
+
+    def test_a_maze_starts_with_no_ends(self) -> None:
+        """Nothing is assumed: a bare grid is not entered anywhere."""
+        maze = Maze(4, 3)
+        self.assertIsNone(maze.get_entry())
+        self.assertIsNone(maze.get_exit())
+
+    def test_the_ends_can_be_given_at_construction(self) -> None:
+        maze = Maze(4, 3, (0, 0), (3, 2))
+        self.assertEqual(maze.get_entry(), (0, 0))
+        self.assertEqual(maze.get_exit(), (3, 2))
+
+    def test_either_end_on_its_own(self) -> None:
+        """They are independent: one may be known before the other."""
+        self.assertEqual(Maze(4, 3, entry=(1, 1)).get_entry(), (1, 1))
+        self.assertIsNone(Maze(4, 3, entry=(1, 1)).get_exit())
+        self.assertEqual(Maze(4, 3, exit=(2, 2)).get_exit(), (2, 2))
+        self.assertIsNone(Maze(4, 3, exit=(2, 2)).get_entry())
+
+    def test_the_ends_can_be_set_afterwards(self) -> None:
+        """A maze carved first and given its ends after."""
+        maze = Maze(4, 3)
+        maze.set_entry((0, 2))
+        maze.set_exit((3, 0))
+        self.assertEqual(maze.get_entry(), (0, 2))
+        self.assertEqual(maze.get_exit(), (3, 0))
+
+    def test_an_end_can_be_taken_away_again(self) -> None:
+        maze = Maze(4, 3, (0, 0), (3, 2))
+        maze.set_entry(None)
+        maze.set_exit(None)
+        self.assertIsNone(maze.get_entry())
+        self.assertIsNone(maze.get_exit())
+
+    def test_an_end_outside_the_grid_is_refused(self) -> None:
+        """The mistake is caught where it is made, not further down.
+
+        A solver told to start nowhere searches nothing and a renderer
+        told to mark nowhere draws nothing, and neither can say why.
+        """
+        for cell in ((4, 0), (0, 3), (-1, 0), (0, -1)):
+            with self.subTest(cell=cell):
+                with self.assertRaises(IndexError):
+                    Maze(4, 3, entry=cell)
+                with self.assertRaises(IndexError):
+                    Maze(4, 3, exit=cell)
+                with self.assertRaises(IndexError):
+                    Maze(4, 3).set_entry(cell)
+                with self.assertRaises(IndexError):
+                    Maze(4, 3).set_exit(cell)
+
+    def test_the_message_names_the_end_and_the_size(self) -> None:
+        """Which end was wrong, and what it would have had to be."""
+        with self.assertRaises(IndexError) as caught:
+            Maze(4, 3, exit=(9, 9))
+        self.assertIn("exit", str(caught.exception))
+        self.assertIn("(9, 9)", str(caught.exception))
+        self.assertIn("4x3", str(caught.exception))
+
+    def test_a_refused_end_leaves_the_maze_alone(self) -> None:
+        """The one that was already set is not lost to a bad second."""
+        maze = Maze(4, 3, entry=(0, 0))
+        with self.assertRaises(IndexError):
+            maze.set_exit((9, 9))
+        self.assertEqual(maze.get_entry(), (0, 0))
+        self.assertIsNone(maze.get_exit())
+
+    def test_the_walls_do_not_matter(self) -> None:
+        """An end is a cell of the grid, open or closed."""
+        maze = self.open_maze(3, 3)
+        maze.set_entry((1, 1))
+        self.assertEqual(maze.get_entry(), (1, 1))
+
+    def test_both_ends_may_be_the_same_cell(self) -> None:
+        """Maze does not police that: the config file already does."""
+        maze = Maze(4, 3, (2, 2), (2, 2))
+        self.assertEqual(maze.get_entry(), maze.get_exit())
+
+
 class TestBounds(MazeTest):
     """Every method refuses a cell outside the grid."""
 

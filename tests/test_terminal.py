@@ -241,9 +241,9 @@ class JunctionTest(TerminalTest):
 class PathsTest(TerminalTest):
     """More than one path at a time: two searches meeting."""
 
-    def two_ways(self) -> Maze:
+    def two_ways(self, exit: tuple[int, int] | None = None) -> Maze:
         """A corridor five cells long, open all the way."""
-        maze = Maze(5, 1)
+        maze = Maze(5, 1, exit=exit)
         for col in range(4):
             maze.destroy_wall(col, 0, Direction.E)
         return maze
@@ -281,8 +281,8 @@ class PathsTest(TerminalTest):
         Nothing was shared, so nothing met — but the route ends at the
         exit, which says the same thing.
         """
-        drawing = render(self.two_ways(),
-                         Drawing(exit=(4, 0), frame=FLUSH,
+        drawing = render(self.two_ways(exit=(4, 0)),
+                         Drawing(frame=FLUSH,
                                  paths=[[(0, 0), (1, 0), (2, 0), (3, 0),
                                          (4, 0)]]))
         assert STANDARD_SKIN.meeting is not None
@@ -291,8 +291,8 @@ class PathsTest(TerminalTest):
 
     def test_short_of_the_exit_it_is_still_searching(self) -> None:
         """One cell short is not solved, and does not look it."""
-        drawing = render(self.two_ways(),
-                         Drawing(exit=(4, 0), frame=FLUSH,
+        drawing = render(self.two_ways(exit=(4, 0)),
+                         Drawing(frame=FLUSH,
                                  paths=[[(0, 0), (1, 0), (2, 0)]]))
         assert STANDARD_SKIN.meeting is not None
         self.assertNotIn(f"\033[{STANDARD_SKIN.meeting.ink}m", drawing)
@@ -400,9 +400,10 @@ class PathTest(TerminalTest):
     def test_ends_are_drawn_over_the_path(self) -> None:
         """Entry and exit stay readable on a solved maze."""
         maze = self.straight_maze()
-        lines = self.lines(maze, Drawing(entry=(0, 0), exit=(3, 0),
-                                         paths=[[(col, 0)
-                                                for col in range(4)]]))
+        maze.set_entry((0, 0))
+        maze.set_exit((3, 0))
+        lines = self.lines(maze, Drawing(paths=[[(col, 0)
+                                                 for col in range(4)]]))
         for cell, symbol in (((0, 0), STANDARD_SKIN.entry.symbol),
                              ((3, 0), STANDARD_SKIN.exit.symbol)):
             char_row, char_col = self.middle(*cell)
@@ -414,7 +415,7 @@ class MarkTest(TerminalTest):
 
     def test_entry_and_exit(self) -> None:
         """Both ends are drawn in the middle of their own cell."""
-        lines = self.lines(Maze(3, 2), Drawing(entry=(0, 0), exit=(2, 1)))
+        lines = self.lines(Maze(3, 2, entry=(0, 0), exit=(2, 1)))
         for cell, symbol in (((0, 0), STANDARD_SKIN.entry.symbol),
                              ((2, 1), STANDARD_SKIN.exit.symbol)):
             char_row, char_col = self.middle(*cell)
@@ -430,12 +431,19 @@ class MarkTest(TerminalTest):
             char_row, char_col = self.middle(*cell)
             self.assertEqual(lines[char_row][char_col], element.symbol)
 
-    def test_a_mark_outside_the_maze_is_dropped(self) -> None:
-        """A cell that does not exist is ignored, not drawn or refused."""
-        plain = self.lines(Maze(2, 2))
-        marked = self.lines(Maze(2, 2), Drawing(entry=(9, 9),
-                                                exit=(-1, 0)))
-        self.assertEqual(plain, marked)
+    def test_an_end_outside_the_maze_is_refused(self) -> None:
+        """A cell that does not exist cannot be an end at all.
+
+        It used to be dropped quietly at drawing time. Now that the
+        ends belong to the maze, the mistake is caught where it is
+        made instead of going missing from the picture.
+        """
+        for cell in ((9, 9), (-1, 0)):
+            with self.subTest(cell=cell):
+                with self.assertRaises(IndexError):
+                    Maze(2, 2, entry=cell)
+                with self.assertRaises(IndexError):
+                    Maze(2, 2, exit=cell)
 
 
 class FrameTest(TerminalTest):
@@ -502,7 +510,7 @@ class ColourTest(TerminalTest):
     def test_stripping_the_escapes_leaves_the_rectangle(self) -> None:
         """What the colours are wrapped around is still a rectangle."""
         drawing = drawn(self.random_maze(5, 4),
-                        Drawing(entry=(0, 0), title="T", message=["m"]))
+                        Drawing(title="T", message=["m"]))
         widths = {len(line) for line in drawing.split("\n")}
         self.assertEqual(len(widths), 1)
 
@@ -518,7 +526,7 @@ class ColourTest(TerminalTest):
         said — including the "42", which is a block and not a dye.
         """
         drawing = render(self.random_maze(4, 3),
-                         Drawing(entry=(0, 0), title="T", message=["m"]))
+                         Drawing(title="T", message=["m"]))
         self.assertNotIn("48;5;", drawing)
 
     def test_no_style_no_escape(self) -> None:
@@ -555,10 +563,11 @@ class SkinTest(TerminalTest):
         has to mean: a symbol hard-coded anywhere in the drawing would
         survive the change of skin and show up here.
         """
-        drawing = drawn(self.random_maze(5, 4),
-                         Drawing(entry=(0, 0), exit=(4, 3),
-                                 paths=[[(1, 1), (2, 1)]], title="T",
-                                 message=["m"]))
+        maze = self.random_maze(5, 4)
+        maze.set_entry((0, 0))
+        maze.set_exit((4, 3))
+        drawing = drawn(maze, Drawing(paths=[[(1, 1), (2, 1)]], title="T",
+                                      message=["m"]))
         skin = STANDARD_SKIN
         allowed = set(skin.wall.joints + skin.border.joints
                       + skin.paths[0].joints + skin.paths[1].joints
@@ -597,12 +606,15 @@ class AnimationTest(TerminalTest):
 
     def test_a_frame_can_carry_its_own_drawing(self) -> None:
         """A snapshot is a maze and what to draw on it, together."""
-        maze = self.open_maze(3, 2)
-        frames = [AnimationFrame(maze, Drawing(entry=(0, 0))),
-                  AnimationFrame(maze, Drawing(exit=(2, 1)))]
+        entered = self.open_maze(3, 2)
+        entered.set_entry((0, 0))
+        left = self.open_maze(3, 2)
+        left.set_exit((2, 1))
+        frames = [AnimationFrame(entered, Drawing(title="in")),
+                  AnimationFrame(left, Drawing(title="out"))]
         printed = self.capture(lambda: animate(frames, delay=0.0))
-        self.assertIn(render(maze, Drawing(entry=(0, 0))), printed)
-        self.assertIn(render(maze, Drawing(exit=(2, 1))), printed)
+        self.assertIn(render(entered, Drawing(title="in")), printed)
+        self.assertIn(render(left, Drawing(title="out")), printed)
 
     def test_a_path_is_revealed_one_cell_at_a_time(self) -> None:
         """The frames of a path grow by a cell each time.

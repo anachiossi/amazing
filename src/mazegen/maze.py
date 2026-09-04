@@ -108,10 +108,25 @@ ALL_WALLS = Direction.N | Direction.E | Direction.S | Direction.W
 
 
 class Maze:
-    """A grid of cells, each with 0 to 4 walls."""
+    """A grid of cells, each with 0 to 4 walls, and the two ends.
 
-    def __init__(self, width: int, height: int) -> None:
-        """initialize each element of the grid with the value ALL_WALLS"""
+    Entry and exit belong here rather than to whoever draws or solves
+    the maze: the subject's own file format writes them in the footer
+    beside the grid, and the solver is asked for the way between them.
+    Kept in one place, the three of them cannot disagree.
+
+    Both are optional. A maze being carved has no ends yet, and a maze
+    that is only being looked at may never need any.
+    """
+
+    def __init__(self, width: int, height: int,
+                 entry: tuple[int, int] | None = None,
+                 exit: tuple[int, int] | None = None) -> None:
+        """initialize each element of the grid with the value ALL_WALLS
+
+        The ends are optional and default to nothing, so every caller
+        that only wants a grid keeps working unchanged.
+        """
         if width < 1 or height < 1:
             raise ValueError(
                 f"a maze needs at least one cell, got {width}x{height}"
@@ -124,9 +139,47 @@ class Maze:
             for _row in range(height):
                 column.append(ALL_WALLS)
             self.grid.append(column)
+        self._entry: tuple[int, int] | None = None
+        self._exit: tuple[int, int] | None = None
+        self.set_entry(entry)
+        self.set_exit(exit)
 
     def get_dim(self) -> tuple[int, int]:
         return self.width, self.height
+
+    def get_entry(self) -> tuple[int, int] | None:
+        """Where the maze is entered, or None if it has no entry."""
+        return self._entry
+
+    def set_entry(self, cell: tuple[int, int] | None) -> None:
+        """Set where the maze is entered, or None to have no entry."""
+        self._entry = self._checked_end(cell, "entry")
+
+    def get_exit(self) -> tuple[int, int] | None:
+        """Where the maze is left, or None if it has no exit."""
+        return self._exit
+
+    def set_exit(self, cell: tuple[int, int] | None) -> None:
+        """Set where the maze is left, or None to have no exit."""
+        self._exit = self._checked_end(cell, "exit")
+
+    def _checked_end(self, cell: tuple[int, int] | None,
+                     name: str) -> tuple[int, int] | None:
+        """Refuse an end that is not a cell of this maze.
+
+        An end outside the grid is a mistake in the caller, and one
+        worth hearing about where it is made: a solver told to start
+        nowhere searches nothing, and a renderer told to mark nowhere
+        draws nothing, and neither of them can say why.
+        """
+        if cell is None:
+            return None
+        if cell not in self:
+            raise IndexError(
+                f"{name} {cell} falls outside a "
+                f"{self.width}x{self.height} maze"
+            )
+        return cell
 
     def __contains__(self, cell: tuple[int, int]) -> bool:
         """Tell whether the cell belongs to the grid.

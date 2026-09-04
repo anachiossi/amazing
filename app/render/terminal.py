@@ -79,9 +79,14 @@ class MazeView(Protocol):
     """What a renderer is allowed to know about a maze.
 
     A ``Protocol`` is a shape, not a base class: ``Maze`` satisfies it
-    by having these two methods and never hears of it. Declaring the
+    by having these four methods and never hears of it. Declaring the
     parameter as a ``MazeView`` is what keeps the renderer read-only —
-    mypy rejects any use of the maze beyond these two methods.
+    mypy rejects any use of the maze beyond these four methods.
+
+    The ends are read rather than handed over because they belong to
+    the maze: the same two cells the solver walks between and the file
+    format writes in its footer. A drawing that carried its own copy
+    could disagree with the maze it was drawn from.
     """
 
     def get_dim(self) -> tuple[int, int]:
@@ -90,6 +95,14 @@ class MazeView(Protocol):
 
     def get_wall(self, col: int, row: int, direction: Direction) -> bool:
         """Does a wall exist on that side of the cell?"""
+        ...
+
+    def get_entry(self) -> tuple[int, int] | None:
+        """Where the maze is entered, or None if it has no entry."""
+        ...
+
+    def get_exit(self) -> tuple[int, int] | None:
+        """Where the maze is left, or None if it has no exit."""
         ...
 
 
@@ -226,10 +239,11 @@ class Drawing:
 
     ``paths`` is a list of routes, drawn one element each; a single
     search is simply a list of one.
+
+    The two ends are not here: they are the maze's, and ``render``
+    reads them from it.
     """
 
-    entry: Cell | None = None
-    exit: Cell | None = None
     paths: Paths = ()
     char1: Cell | None = None
     char2: Cell | None = None
@@ -627,10 +641,12 @@ def render(maze: MazeView, drawing: Drawing | None = None) -> str:
     skin, frame = plan.skin, plan.frame
     width, height = maze.get_dim()
     canvas, _ = drawing_size(width, height, plan.cell_width, frame)
-    links = paths_links(plan.paths, skin.paths, skin.meeting, plan.exit)
+    links = paths_links(plan.paths, skin.paths, skin.meeting,
+                        maze.get_exit())
     marks: dict[Cell, Element] = {}
     for cell, element in ((plan.char1, skin.char1), (plan.char2, skin.char2),
-                          (plan.entry, skin.entry), (plan.exit, skin.exit)):
+                          (maze.get_entry(), skin.entry),
+                          (maze.get_exit(), skin.exit)):
         if cell is not None and element is not None:
             marks[cell] = element
 
