@@ -18,6 +18,8 @@ On top of this class it is possible to build the rest:
 """
 
 import random
+from collections import deque
+from collections.abc import Iterator
 from enum import IntFlag
 
 
@@ -215,10 +217,19 @@ class Maze:
         #
         return bool(self.grid[col][row] & direction)
 
+    def wall_count(self, col: int, row: int) -> int:
+        """How many of the cell's four walls are closed, 0 to 4.
+
+        One is a dead-end seen from the other side, three is a
+        dead-end, four is a cell nobody can reach. Generation and the
+        analyzer both count them, so the counting lives here once.
+        """
+        self._check_bounds(col, row)
+        return sum(bool(self.grid[col][row] & side) for side in Direction)
+
     def no_access(self, col: int, row: int) -> bool:
         """Check if a given cell position is closed by all four walls."""
-        self._check_bounds(col, row)
-        return self.grid[col][row] == ALL_WALLS
+        return self.wall_count(col, row) == 4
 
     def build_wall(self, col: int, row: int, direction: Direction) -> None:
         """Build a wall, updating the neighbouring cell as well.
@@ -309,65 +320,111 @@ class Maze:
             raise ValueError(
                 f"probability must be between 0 and 1, got {probability}"
             )
+        for (col, row), side in self.internal_walls():
+            if random.random() < probability:
+                self.build_wall(col, row, side)
+            else:
+                self.destroy_wall(col, row, side)
+
+    def across(self, col: int, row: int, side: Direction
+               ) -> tuple[int, int]:
+        """The cell that side leads to, even if it falls off the grid."""
+        self._check_bounds(col, row)
+        step_col, step_row = side.step()
+        return col + step_col, row + step_row
+
+    def neighbours(self, col: int, row: int
+                   ) -> list[tuple[tuple[int, int], Direction]]:
+        """The cells beside this one, each with the side it lies through.
+
+        Walls are not looked at: these are the cells that exist next to
+        this one, whether or not there is a way through.
+
+        The side comes back with the cell because anything that wants
+        to *change* the wall between them needs it — ``build_wall`` and
+        ``destroy_wall`` are both asked for a direction, and working it
+        back out from two cells is the sort of arithmetic that gets
+        written five times and wrong once.
+        """
+        self._check_bounds(col, row)
+        cells: list[tuple[tuple[int, int], Direction]] = []
+        for side in Direction:
+            neighbour = self.across(col, row, side)
+            if neighbour in self:
+                cells.append((neighbour, side))
+        return cells
+
+    def closed_walls(self, col: int, row: int) -> list[Direction]:
+        """Internal sides of that cell that are still walled.
+
+        The outer border is left out: there is no neighbour there.
+        """
+        return [side for other, side in self.neighbours(col, row)
+                if self.get_wall(col, row, side)]
+
+    def passages(self, col: int, row: int
+                 ) -> list[tuple[tuple[int, int], Direction]]:
+        """The neighbours this cell has a way through to.
+
+        ``neighbours`` with the closed sides left out, so the walls are
+        taken into consideration here.
+
+        A cell of the border is never returned, since the walls of the
+        external border are always closed. The grid is checked all the
+        same, so that the method keeps returning cells that exist even
+        if a border wall were opened by mistake.
+        """
+        return [(cell, side) for cell, side in self.neighbours(col, row)
+                if not self.get_wall(col, row, side)]
+
+    def internal_walls(self) -> Iterator[tuple[tuple[int, int], Direction]]:
+        """Every wall between two cells, given once.
+
+        Only the East and South sides are looked at, so that each wall
+        is offered once instead of twice, once from each of the two
+        cells that share it. The border is left out: it has no cell
+        behind it and never opens.
+
+        This is the order Kruskal's shuffles and the loop ``randomize``
+        walks, so it is written here rather than in each of them.
+        """
         for col in range(self.width):
             for row in range(self.height):
-                #
-                # Only the East and South sides are looked at, so that
-                # each wall is decided once instead of twice, once from
-                # each of the two cells that share it.
-                #
                 for side in (Direction.E, Direction.S):
-                    step_col, step_row = side.step()
-                    if (col + step_col, row + step_row) not in self:
-                        # A wall of the border, which always stays up.
-                        continue
-                    if random.random() < probability:
-                        self.build_wall(col, row, side)
-                    else:
-                        self.destroy_wall(col, row, side)
+                    if self.across(col, row, side) in self:
+                        yield (col, row), side
 
-    def adjacent_cells(self, col: int, row: int) -> list[tuple[int, int]]:
-        """List the cells that are adjacent to the given (col, row)
-        regardless if the walls are present or not.
+    def open_passages(self) -> set[frozenset[tuple[int, int]]]:
+        """Every open passage between two cells, each counted once."""
+        return {frozenset(((col, row), self.across(col, row, side)))
+                for (col, row), side in self.internal_walls()
+                if not self.get_wall(col, row, side)}
 
+    def dead_ends(self) -> list[tuple[int, int]]:
+        """Cells with one way in and out: three walls standing."""
+        return [(col, row)
+                for col in range(self.width)
+                for row in range(self.height)
+                if self.wall_count(col, row) == 3]
+
+    def region_of(self, col: int, row: int,
+                  banned: frozenset[tuple[int, int]] | None = None
+                  ) -> frozenset[tuple[int, int]]:
+        """Every cell reachable from this one, walls taken into account.
+
+        ``banned`` is one passage to pretend closed, so a choke point
+        can be told from an ordinary one. Breadth-first, so it is also
+        the cheapest way to ask whether two cells are joined at all.
         """
         self._check_bounds(col, row)
-        cells: list[tuple[int, int]] = []
-        for side in Direction:
-            step_col, step_row = side.step()
-            neighbour_col, neighbour_row = col + step_col, row + step_row
-            if self._is_inside(neighbour_col, neighbour_row):
-                cells.append((neighbour_col, neighbour_row))
-        return cells
-
-    def reachable_cells(self, col: int, row: int) -> list[tuple[int, int]]:
-        """List the cells that are adjacent to the given (col, row)
-        and for which there is an open passage. Which means that here
-        walls are taken into consideration.
-
-        Notice that a cell of the border is never returned, since the
-        walls of the external border are always closed. The grid is
-        checked all the same, so that the method keeps returning cells
-        that exist even if a border wall were opened by mistake.
-
-        """
-        self._check_bounds(col, row)
-        cells: list[tuple[int, int]] = []
-        for side in Direction:
-            if self.get_wall(col, row, side):
-                #
-                # A closed wall on this side: no passage to the cell
-                # behind it, whether or not that cell exists, so we
-                # skip it and do not consider it
-                #
-                continue
-            step_col, step_row = side.step()
-            neighbour_col, neighbour_row = col + step_col, row + step_row
-            #
-            # Technically not needed because of the invariant that
-            # border cells are always closed, yet a good defensive
-            # guard to have regardless
-            #
-            if self._is_inside(neighbour_col, neighbour_row):
-                cells.append((neighbour_col, neighbour_row))
-        return cells
+        seen = {(col, row)}
+        queue = deque([(col, row)])
+        while queue:
+            cell = queue.popleft()
+            for other, _side in self.passages(*cell):
+                if banned is not None and frozenset((cell, other)) == banned:
+                    continue
+                if other not in seen:
+                    seen.add(other)
+                    queue.append(other)
+        return frozenset(seen)

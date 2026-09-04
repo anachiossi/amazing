@@ -1,54 +1,225 @@
-"""Maze generation."""
+"""Core abstractions required to generate mazes. 
 
-from .maze import Maze
+MazeGenerator is an abstract class that implements the core structure
+that is shared across all maze generators. To implement a specific
+generator you need to extend the abstract class and implement the
+_blank() and _run() methods.
+"""
 
+import random
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
 
-class MazeGenerator:
-    """Generates mazes. Public class of the package."""
+from .generation_config import MazeGenerationConfig
+from .maze import Direction, Maze
 
-    # Size of the "42" pattern itself, in cells.
-    min_42: tuple[int, int] = (7, 5)
-    max_42: tuple[int, int] = (13, 9)
-    # Smallest maze that can hold it: the pattern plus one cell of margin
-    # all around, without which the board splits into separate regions.
-    min_maze_with_42: tuple[int, int] = (9, 7)
+Cell = tuple[int, int]
+# A passage between two cells, held as the pair it joins so that it
+# reads the same from either side.
+Edge = frozenset[Cell]
 
-    def __init__(self,
-                 width: int,
-                 height: int,
-                 entry: tuple[int, int],
-                 exit: tuple[int, int],
-                 perfect: bool = False,
-                 seed: int | None = None) -> None:
-        """Configure the generator; ``seed`` makes the result repeatable."""
-        self.width = width
-        self.height = height
-        self.entry = entry
-        self.exit = exit
-        self.perfect = perfect
-        self.seed = seed
+class MazeGenerator(ABC):
+    """Generates mazes. Public class of the package.
 
-    def forty_two(self, maze: Maze) -> bool:
-        """Draw the "42" pattern in the maze, if it fits.
+    The class implements a generator for mazes with the following core
+    methods:
 
-        The pattern is drawn with fully closed cells, so every cell it
-        covers gets all four of its walls built.
+    - carve()
 
-        Return True if it was drawn, False if it did not fit.
+      yields the maze after every update of the algorithm used. This
+      can be used to render an animation of the maze frame by
+      frame. Notice that the maze is changed in-place, which means
+      that when we generate the next version the previous one no
+      longer exists.
+
+    - generate()
+
+      gives directly the final maze by consuming all updates of
+      carve() until we reach the end of the generator. The last maze
+      is the final one.
+
+    This class should then be extended by different subclasses, where
+    each subclass should implement a single algorithm. In practice
+    this is done by implementing the following abstract methods:
+
+    - _blank()
+
+       The initial state of the grid the algorithm starts from. For
+       some algorithms it will be no walls, for others it will be full
+       walls.
+    
+    - _run()
+
+       The actual algorithm itself.
+
+    """
+
+    # Every subclass that names itself is selectable by that name, so
+    # adding an algorithm is writing a class and nothing else.
+    algorithms: dict[str, type["MazeGenerator"]] = {}    
+    name: str = ""
+    
+    # Kruskal's while it is the only one written; the backtracker takes
+    # this back when it lands, being the one that animates best.
+    default: str = "kruskal"
+
+    # The maze being built. This one we just declare as it doesn't
+    # exist yet. It is created during the call to carve().
+    maze: Maze
+
+    # -----------------------------------------------------------------
+    # Constructors and class lifecycle
+
+    def __init__(self, config: MazeGenerationConfig) -> None:
+        self.config = config
+
+    def __init_subclass__(cls) -> None:
+        """This is called when a subclass of MazeGenerator is
+        defined. That is, we don't need to istantiate the
+        subclass. When the python interpreter reads the definition of
+        the subclass, this method will execute.
+
+        If the subclass sets a class attribute called `name`, then
+        such value is stored into the shared dictionary algorithms.
         """
-        # TODO
-        raise NotImplementedError
+        if cls.name:
+            MazeGenerator.algorithms[cls.name] = cls        
 
-    def is_3x3_open(self, maze: Maze, col: int, row: int) -> bool:
-        """Tell whether the 3x3 square centred on (col, row) is open.
+    @classmethod
+    def from_config(cls, config: MazeGenerationConfig) -> "MazeGenerator":
+        """Factory that builds a specific MazeGeneration.
 
-        The central cell is 0000 and the neighbours have no walls between
-        them; the walls on the outer side of the square may be present.
+        If algorithm is None then the default generator is built. This
+        is decided by the value of the `default` class attribute.
         """
-        # TODO
-        raise NotImplementedError
+        chosen = config.algorithm if config.algorithm is not None else cls.default
+        chosen = chosen.strip().lower()
+        if chosen not in cls.algorithms:
+            known = ", ".join(sorted(cls.algorithms)) or "none registered"
+            raise ValueError(
+                f"no generation algorithm called {config.algorithm!r}; "
+                f"there is {known}"
+            )
+        return cls.algorithms[chosen](config)
+
+    # -----------------------------------------------------------------
+    # Public APIs
 
     def generate(self) -> Maze:
-        """Generate and return a new maze."""
-        # TODO: pick the generation algorithm
-        raise NotImplementedError
+        """exhaust all the generation steps in order to arrive at the
+        final maze and return it
+        """
+        for _ in self.carve():
+            pass
+        return self.maze
+
+    def carve(self) -> Iterator[Maze]:
+        """Yield the maze after each change, from blank to finished.
+        This is useful when animating the generation.
+        """
+        if self.config.seed is not None:
+            random.seed(self.config.seed)
+        self.maze = self._blank()
+        yield self.maze
+        yield from self._run()
+        if not self.config.perfect:
+            yield from self._braid()
+            yield from self._loosen()
+        self.maze.set_entry(self.config.entry_cell)
+        self.maze.set_exit(self.config.exit_cell)
+        yield self.maze
+
+    # -----------------------------------------------------------------
+    # These are the methods that the subclasses will implement. It's
+    # where the different algorithms comes in.
+
+    @abstractmethod
+    def _run(self) -> Iterator[Maze]:
+        """The algorithm itself, yielding after each wall it changes."""
+
+    def _blank(self) -> Maze:
+        """The grid the algorithm starts from.
+
+        Most subclasses will inherit a starting poting where every
+        wall is standing. Recursive division instead overrides this
+        default behavior. It will start from zero walls built.
+        """
+        return Maze(self.config.width, self.config.height)
+
+    # -----------------------------------------------------------------
+    # These two methods are used when PERFECT=false.
+    #
+    # - _braid() opens dead-ends and create new loops
+    #
+    # - _loosen() makes sure there are at least two paths from entry to exit.
+
+    def _braid(self) -> Iterator[Maze]:
+        """Open a wall at each dead-end, so the maze has loops.
+
+        A dead-end is a cell you can only leave the way you came in.
+        Opening one more of its walls joins it to a neighbour it was
+        not joined to, and that is a loop.
+
+        Local, one cell at a time: it never looks at the entry or the
+        exit. That is why ``_loosen`` follows it.
+
+        Recursive division overrides this to do nothing — it punches
+        two gaps per wall as it runs, so the loops are already there.
+        """
+        for cell in self.maze.dead_ends():
+            col, row = cell
+            shut = self.maze.closed_walls(col, row)
+            if shut:
+                self.maze.destroy_wall(col, row, random.choice(shut))
+                yield self.maze
+
+    def _loosen(self) -> Iterator[Maze]:
+        """Open walls until no single one can cut the entry from the exit.
+
+        ``_braid`` leaves no dead-ends, which is not the same as leaving
+        two ways across: the loops it makes can all sit off to one side
+        while every route still crosses one shared passage. Closing that
+        passage would strand the exit, so there is only one route, and
+        the config file promised two.
+
+        A passage like that splits the maze in two when it is taken
+        away. Any other wall standing between those two halves is a way
+        round it, so opening one means the maze can no longer be cut in
+        one place.
+
+        Written the obvious way — every passage tried in turn — which is
+        O(passages x search). The linear way is to look for bridges in
+        one pass; this stays as the version that is plainly right.
+        """
+        while True:
+            chokes = self._choke_points()
+            if not chokes:
+                return
+            entry_col, entry_row = self.config.entry_cell
+            near = self.maze.region_of(
+                entry_col, entry_row, banned=chokes[0])
+            across = [(cell, side) for cell, side in self._closed_across(near)]
+            if not across:
+                return  # walled in by the border: nothing to open
+            (col, row), side = random.choice(across)
+            self.maze.destroy_wall(col, row, side)
+            yield self.maze
+
+    # -----------------------------------------------------------------
+    # Questions about the planned ends
+
+    def _choke_points(self) -> list[Edge]:
+        """Passages every route from entry to exit has to use."""
+        entry_col, entry_row = self.config.entry_cell
+        return [edge for edge in self.maze.open_passages()
+                if self.config.exit_cell not in self.maze.region_of(
+                    entry_col, entry_row, banned=edge)]
+
+    def _closed_across(self, near: frozenset[Cell]) -> list[tuple[Cell, Direction]]:
+        """Walls standing between the cells in ``near`` and the rest."""
+        return [((col, row), side)
+                for col in range(self.maze.width)
+                for row in range(self.maze.height)
+                for other, side in self.maze.neighbours(col, row)
+                if self.maze.get_wall(col, row, side)
+                and ((col, row) in near) != (other in near)]

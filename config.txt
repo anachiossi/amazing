@@ -21,4 +21,5 @@ PERFECT=True
 #SEED=42
 
 # Optional. Which generation algorithm to use.
-#ALGORITHM=backtracker
+# Written so far: kruskal. Backtracker and division are coming.
+#ALGORITHM=kruskal

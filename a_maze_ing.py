@@ -12,26 +12,28 @@ maze does not fit at all. This file answers that with a message and a
 non-zero exit.
 """
 
-import random
 import sys
 
 from app.config import MazeConfig, MazeConfigError
 from app.render.terminal import Drawing, TooSmall, show
-from mazegen import Maze
+from mazegen import MazeGenerator
 
 
-def message_for(drawing: Drawing, config: MazeConfig) -> list[str]:
+def message_for(drawing: Drawing, config: MazeConfig,
+                algorithm: str) -> list[str]:
     """The lines under the maze: what was asked for, and how it came out.
 
-    ``drawing`` is read after its width is settled, so the size named
-    here is the size on screen rather than the size hoped for.
+    ``drawing`` is read after its width is settled, and ``algorithm``
+    is the one that ran, so both name what is on screen rather than
+    what the config file hoped for — the file may say neither.
     """
     seed = config.seed if config.seed is not None else "—"
     shape = "perfect" if config.is_perfect else "braided"
     return [f"{config.width}x{config.height} · {shape} · seed {seed}"
             f" · {drawing.cell_width} wide",
-            "walls are randomize() for now — no generator yet"]
+            f"generated with {algorithm}"]
 
+# -------------------------------------------------------------------------------------------------------
 
 def main() -> int:
     """Read the config, build a maze, and draw it at the size that fits."""
@@ -47,12 +49,18 @@ def main() -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
-    # There is no generator yet, so the walls come from randomize():
-    # a board with no connectivity, which is enough to look at.
-    random.seed(42 if config.seed is None else config.seed)
-    maze = Maze(config.width, config.height, config.entry, config.exit)
-    maze.randomize(0.35)
+    # Instantiate proper maze generator class depending on config
+    try:
+        generatorConfig = config.to_generation_config()
+        generator = MazeGenerator.from_config(generatorConfig)
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
 
+    # Generate the maze
+    maze = generator.generate()
+
+    # Render it
     drawing = Drawing(title="A-MAZE-ING", fit=True)
     try:
         drawing.fit_to(maze)
@@ -60,10 +68,11 @@ def main() -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
-    drawing.message = message_for(drawing, config)
+    drawing.message = message_for(drawing, config, generator.name)
     show(maze, drawing)
     return 0
 
+# -------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     raise SystemExit(main())
