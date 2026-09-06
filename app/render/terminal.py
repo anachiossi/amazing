@@ -64,6 +64,8 @@ from mazegen import Direction
 Cell = tuple[int, int]
 Path = Sequence[Cell]
 Paths = Sequence[Path]
+VisitedA = Sequence[Cell]
+VisitedB = Sequence[Cell]
 
 # What a cell on a path knows: the sides it links to, and the element
 # of the path that drew it.
