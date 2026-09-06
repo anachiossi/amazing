@@ -19,7 +19,7 @@ On top of this class it is possible to build the rest:
 
 import random
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from enum import IntFlag
 
 
@@ -143,6 +143,7 @@ class Maze:
             self.grid.append(column)
         self._entry: tuple[int, int] | None = None
         self._exit: tuple[int, int] | None = None
+        self._frozen: frozenset[tuple[int, int]] = frozenset()
         self.set_entry(entry)
         self.set_exit(exit)
 
@@ -164,6 +165,37 @@ class Maze:
     def set_exit(self, cell: tuple[int, int] | None) -> None:
         """Set where the maze is left, or None to have no exit."""
         self._exit = self._checked_end(cell, "exit")
+
+    def get_frozen(self) -> frozenset[tuple[int, int]]:
+        """The cells nothing may open, empty if none were set aside.
+
+        These are the fully closed cells the generator sealed before
+        it started — the "42" the subject asks for. The walls alone
+        cannot say it: a cell with four walls standing is one that was
+        set aside here, and one that has simply not been carved yet,
+        and whoever draws the maze has to tell those two apart.
+        """
+        return self._frozen
+
+    def set_frozen(self, cells: Iterable[tuple[int, int]]) -> None:
+        """Set aside the cells nothing may open.
+
+        Taken as any iterable and kept as a frozenset, so that a
+        caller may hand over whatever it has and no one can change the
+        answer afterwards by changing what they passed.
+
+        A cell off the grid is refused for the same reason an end off
+        the grid is: it is a mistake in the caller, and silently
+        keeping it would leave a cell nobody can draw.
+        """
+        chosen = frozenset(cells)
+        for cell in chosen:
+            if cell not in self:
+                raise IndexError(
+                    f"frozen cell {cell} falls outside a "
+                    f"{self.width}x{self.height} maze"
+                )
+        self._frozen = chosen
 
     def _checked_end(self, cell: tuple[int, int] | None,
                      name: str) -> tuple[int, int] | None:

@@ -198,8 +198,12 @@ class SeveralSizesTest(unittest.TestCase):
                 with self.subTest(size=(width, height), seed=seed):
                     maze = build(width, height,
                                  perfect=True, seed=seed).generate()
-                    self.assertEqual(len(maze.region_of(0, 0)), width * height)
-                    self.assertEqual(passage_count(maze), width * height - 1)
+                    # The "42" is sealed off, so the tree spans the
+                    # cells left over rather than all of them. 20x15
+                    # is the only size here with room for the shape.
+                    playable = width * height - len(maze.get_frozen())
+                    self.assertEqual(len(maze.region_of(0, 0)), playable)
+                    self.assertEqual(passage_count(maze), playable - 1)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import random
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
+from . import forty_two
 from .generation_config import MazeGenerationConfig
 from .maze import Direction, Maze
 
@@ -62,6 +63,11 @@ class MazeGenerator(ABC):
     # Kruskal's while it is the only one written; the backtracker takes
     # this back when it lands, being the one that animates best.
     default: str = "kruskal"
+
+    # This set contains the cells that belong to the 42 pattern and
+    # that must not be modified by the generation algorithm. The walls
+    # along side these cells must always be up.
+    frozen: frozenset[Cell] = frozenset()
 
     # The maze being built. This one we just declare as it doesn't
     # exist yet. It is created during the call to carve().
@@ -119,7 +125,14 @@ class MazeGenerator(ABC):
         """
         if self.config.seed is not None:
             random.seed(self.config.seed)
+            
         self.maze = self._blank()
+
+        # select the frozen cells that must not be modified by the
+        # algorithm and that form the 42 pattern. This is done BEFORE
+        # the algorithm execution itself.
+        self.frozen = forty_two.reserve(self.maze)
+        
         yield self.maze
         yield from self._run()
         if not self.config.perfect:
@@ -146,6 +159,29 @@ class MazeGenerator(ABC):
         """
         return Maze(self.config.width, self.config.height)
 
+    def _free_walls(self) -> list[tuple[Cell, Direction]]:
+        """The internal walls an algorithm is allowed to open.
+
+        ``internal_walls`` with the "42" left out. Every generator
+        wants this rather than the full list, so it is written here
+        once instead of in each of them.
+        """
+        return [(cell, side) for cell, side in self.maze.internal_walls()
+                if not self._touches_42(cell, side)]
+
+    def _touches_42(self, cell: Cell, side: Direction) -> bool:
+        """Does that wall have a cell of the "42" on either side of it?
+
+        Asked from both sides, because a wall belongs to two cells and
+        only one of them needs to be part of the shape for the wall to
+        be one that has to stay standing.
+        """
+        col, row = cell
+        if cell in self.frozen:
+            return True
+        other = self.maze.across(col, row, side)
+        return other in self.maze and other in self.frozen
+
     # -----------------------------------------------------------------
     # These two methods are used when PERFECT=false.
     #
@@ -168,7 +204,8 @@ class MazeGenerator(ABC):
         """
         for cell in self.maze.dead_ends():
             col, row = cell
-            shut = self.maze.closed_walls(col, row)
+            shut = [side for side in self.maze.closed_walls(col, row)
+                    if not self._touches_42(cell, side)]
             if shut:
                 self.maze.destroy_wall(col, row, random.choice(shut))
                 yield self.maze
@@ -222,4 +259,5 @@ class MazeGenerator(ABC):
                 for row in range(self.maze.height)
                 for other, side in self.maze.neighbours(col, row)
                 if self.maze.get_wall(col, row, side)
+                and not self._touches_42((col, row), side)
                 and ((col, row) in near) != (other in near)]

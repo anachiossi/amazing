@@ -52,6 +52,7 @@ import re
 import shutil
 import sys
 import termios
+import textwrap
 import time
 import tty
 from dataclasses import dataclass, field, replace
@@ -73,19 +74,19 @@ Link = tuple[int, "JoinedElement"]
 # at 1 a square maze comes out flattened.
 CELL_WIDTH = 3
 
-# The narrowest cell the box-drawing skin still reads at. Below this
-# there is no room for a line to turn a corner, and ``skin_for`` hands
-# back the blocks instead.
-COMPACT = 2
+# The widths a fit may choose between. One, now that there is one
+# skin: the box-drawing needs room to turn a corner, so a cell
+# narrower than this is not a tighter drawing but an unreadable one.
+WIDTHS = (CELL_WIDTH,)
 
 
 class MazeView(Protocol):
     """What a renderer is allowed to know about a maze.
 
     A ``Protocol`` is a shape, not a base class: ``Maze`` satisfies it
-    by having these four methods and never hears of it. Declaring the
+    by having these five methods and never hears of it. Declaring the
     parameter as a ``MazeView`` is what keeps the renderer read-only —
-    mypy rejects any use of the maze beyond these four methods.
+    mypy rejects any use of the maze beyond these five methods.
 
     The ends are read rather than handed over because they belong to
     the maze: the same two cells the solver walks between and the file
@@ -107,6 +108,15 @@ class MazeView(Protocol):
 
     def get_exit(self) -> tuple[int, int] | None:
         """Where the maze is left, or None if it has no exit."""
+        ...
+
+    def get_frozen(self) -> frozenset[tuple[int, int]]:
+        """The cells nothing may open, empty if the maze has none.
+
+        Set aside before the maze was carved, and what draws the
+        "42". A cell of four standing walls is not enough to go on: in
+        a maze being carved that is simply somewhere not reached yet.
+        """
         ...
 
 
@@ -194,6 +204,11 @@ class TerminalSkin:
     char1: Element | None = None
     char2: Element | None = None
 
+    # What stands in a cell of the "42". The shape shows without it —
+    # it is a block nothing runs through — but a cell filled in reads
+    # as solid rather than as somewhere not yet carved.
+    forty_two: Element | None = None
+
 
 STANDARD_SKIN = TerminalSkin(
     floor=Element(" "),
@@ -207,31 +222,13 @@ STANDARD_SKIN = TerminalSkin(
                          joints="•╵╶╰╷│╭├╴╯─┴╮┤┬┼")),
     meeting=JoinedElement(ink=rainbow.ink("verdigris"),
                           joints="•╵╶╰╷│╭├╴╯─┴╮┤┬┼"),
-    entry=Element("O", ink=rainbow.ink("peppermint")),
-    exit=Element("X", ink=rainbow.ink("madder")),
+    entry=Element("⬤", ink=rainbow.ink("peppermint")),
+    exit=Element("⚑", ink=rainbow.ink("madder")),
     title=Element(ink=rainbow.ink("snow")),
     message=Element(ink=rainbow.ink("stone")),
-    char1=Element("@", ink=rainbow.ink("cadmium")),
+    char1=Element("இ", ink=rainbow.ink("cadmium")),
     char2=Element("&", ink=rainbow.ink("flamingo")),
-)
-
-# The skin for a maze one character wide:
-
-BLOCKS = TerminalSkin(
-    floor=Element(" "),
-    wall=JoinedElement(ink=rainbow.ink("chambray"),
-                       joints=" " + "█" * 15),
-    border=JoinedElement(ink=rainbow.ink("cloud"),
-                         joints=" " + "█" * 15),
-    paths=(JoinedElement(ink=rainbow.ink("gamboge"), joints="▓" * 16),
-           JoinedElement(ink=rainbow.ink("manganese"), joints="▓" * 16)),
-    meeting=JoinedElement(ink=rainbow.ink("verdigris"), joints="▓" * 16),
-    entry=Element("O", ink=rainbow.ink("peppermint")),
-    exit=Element("X", ink=rainbow.ink("madder")),
-    title=Element(ink=rainbow.ink("snow")),
-    message=Element(ink=rainbow.ink("stone")),
-    char1=Element("@", ink=rainbow.ink("cadmium")),
-    char2=Element("&", ink=rainbow.ink("flamingo")),
+    forty_two=Element("ဩ", ink=rainbow.ink("robin")),
 )
 
 FRAME = Frame()
@@ -267,6 +264,13 @@ class Drawing:
     cell_width: int = CELL_WIDTH
     fit: bool = False
 
+    # What ``fit_to`` settled on, kept apart from what was asked for
+    # above so that a window growing back gets its title back: the
+    # request is the thing that lasts, the fit is redone every draw.
+    shown_frame: Frame | None = field(default=None, init=False, repr=False)
+    shown_message: Sequence[str] | None = field(default=None, init=False,
+                                                repr=False)
+
     def fit_to(self, maze: MazeView) -> int:
         """Settle the cell width for that maze, and return it.
 
@@ -282,17 +286,16 @@ class Drawing:
         Raises ``TooSmall`` when no width fits, which is the caller's
         to answer: there is no drawing to make.
         """
+        self.shown_frame, self.shown_message = self.frame, self.message
         if self.fit:
             width, height = maze.get_dim()
-            self.cell_width = widest_that_fits(width, height,
-                                               frame=self.frame)
+            self.cell_width, self.shown_frame, self.shown_message = fitted(
+                width, height, frame=self.frame, message=self.message)
         return self.cell_width
 
     def drawn_with(self) -> TerminalSkin:
-        """The skin named, or the one that suits the cell width."""
-        if self.skin is not None:
-            return self.skin
-        return skin_for(self.cell_width)
+        """The skin named, or the one every drawing gets by default."""
+        return self.skin if self.skin is not None else STANDARD_SKIN
 
 
 def horizontal(maze: MazeView, col: int, row: int) -> bool:
@@ -596,6 +599,35 @@ def _crossing(links: dict[Cell, Link], cell: Cell,
     return None
 
 
+def wrap(text: str, width: int) -> list[str]:
+    """Break a message into as many lines as it takes to keep all of it.
+
+    A message that already fits comes back untouched, spacing and all:
+    the action bar spaces its keys out on purpose, and squeezing that
+    out of a line with room to spare would be a change nobody asked
+    for. Only when it does not fit is the spacing spent, a word at a
+    time — because the alternative was cutting the line off, and a key
+    the reader cannot see is a key they do not have.
+    """
+    if width < 1 or len(text) <= width:
+        return [text]
+    return textwrap.wrap(text, width, break_long_words=True,
+                         break_on_hyphens=False) or [""]
+
+
+def message_lines(message: Sequence[str], canvas: int,
+                  frame: Frame) -> list[str]:
+    """The lines under the maze: every message, wrapped to the canvas.
+
+    ``frame.tail`` is a floor rather than a count. Fewer messages than
+    that are padded out with blanks, so the drawing keeps its shape
+    from one frame to the next and nothing jumps; more, or messages
+    long enough to wrap, make the tail taller instead of being cut.
+    """
+    lines = [line for text in message for line in wrap(text, canvas)]
+    return lines + [""] * (frame.tail - len(lines))
+
+
 def band(text: str, width: int, element: Element) -> str:
     """Return one line of canvas, with the text centred on it."""
     text = text[:width]
@@ -612,8 +644,31 @@ class TooSmall(Exception):
     """Raised when no cell width makes a maze fit the space given."""
 
 
+def too_small(width: int, height: int, needed: tuple[int, int],
+              columns: int, lines: int) -> TooSmall:
+    """The refusal, said in a way the reader can act on.
+
+    Which way it is short, by how much, and what to do about it. A
+    terminal is made bigger by making its text smaller, which is not
+    the first thing that comes to mind when a program says there is
+    not enough room — so it is the thing this says out loud.
+    """
+    short = []
+    if needed[0] > columns:
+        short.append(f"{needed[0] - columns} columns")
+    if needed[1] > lines:
+        short.append(f"{needed[1] - lines} lines")
+    return TooSmall(
+        f"a {width}x{height} maze needs at least {needed[0]} columns "
+        f"x {needed[1]} lines, and there are {columns} x {lines} — "
+        f"{' and '.join(short)} short. Press ctrl and minus to make the "
+        f"text smaller: the window then holds more of both."
+    )
+
+
 def drawing_size(width: int, height: int, cell_width: int = CELL_WIDTH,
-                 frame: Frame = FRAME) -> tuple[int, int]:
+                 frame: Frame = FRAME,
+                 tail: int | None = None) -> tuple[int, int]:
     """Return the columns and lines a drawing of that maze would take.
 
     Every cell needs its own width plus one character for the wall
@@ -626,18 +681,80 @@ def drawing_size(width: int, height: int, cell_width: int = CELL_WIDTH,
     have to be found and corrected every time they changed.
     """
     return (width * (cell_width + 1) + 1 + 2 * frame.sides,
-            2 * height + 1 + frame.head + frame.tail)
+            2 * height + 1 + frame.head
+            + (frame.tail if tail is None else tail))
+
+
+def squeezes(frame: Frame,
+             message: Sequence[str]
+             ) -> Iterable[tuple[Frame, Sequence[str]]]:
+    """Ways to draw the same maze in less room, roomiest first.
+
+    Only the frame is ever given up — the maze itself is what was
+    asked for. The title goes before any message does, because a
+    drawing with no name is still readable; then the messages go from
+    the front, so whoever writes them puts the one that matters least
+    first.
+
+    The last message is never given up. It is the action bar, and keys
+    the reader cannot see are keys they do not have.
+
+    ``tail`` comes down with the messages. It is a floor rather than a
+    count, so leaving it where it was would pad the lines straight
+    back and give up the text for nothing.
+    """
+    yield frame, message
+    if frame.head:
+        yield replace(frame, head=0), message
+    for keep in range(len(message) - 1, 0, -1):
+        yield (replace(frame, head=0, tail=min(frame.tail, keep)),
+               message[-keep:])
+
+
+def fitted(width: int, height: int,
+           space: tuple[int, int] | None = None,
+           frame: Frame = FRAME,
+           widest: int = CELL_WIDTH,
+           message: Sequence[str] = ()
+           ) -> tuple[int, Frame, Sequence[str]]:
+    """The roomiest drawing of that maze that fits, as three answers.
+
+    Two things can be spent, and they are spent in that order: the
+    width of a cell first, since a narrower cell still draws
+    everything, and only then the frame, since that is text taken off
+    the screen. So a drawing gives up its title only once there is no
+    cell width left to give up.
+
+    ``space`` left out means the terminal this is running in, as with
+    ``widest_that_fits``.
+    """
+    if space is None:
+        size = shutil.get_terminal_size()
+        columns, lines = size.columns, size.lines
+    else:
+        columns, lines = space
+    for squeezed, shown in squeezes(frame, message):
+        for cell_width in (w for w in WIDTHS if w <= widest):
+            canvas = drawing_size(width, height, cell_width, squeezed)[0]
+            tall = len(message_lines(shown, canvas, squeezed))
+            needed = drawing_size(width, height, cell_width, squeezed, tall)
+            if needed[0] <= columns and needed[1] <= lines:
+                return cell_width, squeezed, shown
+    raise too_small(width, height,
+                    drawing_size(width, height, WIDTHS[-1], frame),
+                    columns, lines)
 
 
 def widest_that_fits(width: int, height: int,
                      space: tuple[int, int] | None = None,
                      frame: Frame = FRAME,
-                     widest: int = CELL_WIDTH) -> int:
+                     widest: int = CELL_WIDTH,
+                     message: Sequence[str] = ()) -> int:
     """Return the widest cell that draws that maze inside ``space``.
 
-    Try each width, biggest first, and take the first that fits — the
-    same arithmetic as ``drawing_size``, asked backwards, which is why
-    the two belong together.
+    Try each of ``WIDTHS``, biggest first, and take the first that
+    fits — the same arithmetic as ``drawing_size``, asked backwards,
+    which is why the two belong together.
 
     ``space`` left out means the terminal this is running in, which is
     what a terminal renderer is drawing into and so is its own to ask.
@@ -653,45 +770,40 @@ def widest_that_fits(width: int, height: int,
         columns, lines = size.columns, size.lines
     else:
         columns, lines = space
-    for cell_width in range(widest, 0, -1):
-        needed = drawing_size(width, height, cell_width, frame)
+    # The tail is asked for each candidate rather than once: a narrower
+    # cell is a narrower canvas, and the same messages wrap to more
+    # lines in it. Condensing buys columns and can cost lines.
+
+    def needs(cell_width: int) -> tuple[int, int]:
+        canvas = drawing_size(width, height, cell_width, frame)[0]
+        tall = len(message_lines(message, canvas, frame))
+        return drawing_size(width, height, cell_width, frame, tall)
+
+    for cell_width in (w for w in WIDTHS if w <= widest):
+        needed = needs(cell_width)
         if needed[0] <= columns and needed[1] <= lines:
             return cell_width
-    needed = drawing_size(width, height, 1, frame)
-    raise TooSmall(
-        f"a {width}x{height} maze needs at least {needed[0]} columns "
-        f"x {needed[1]} lines, and there are {columns} x {lines}"
-    )
-
-
-def skin_for(cell_width: int) -> TerminalSkin:
-    """Return the skin that suits a cell of that width.
-
-    At one character wide a cell has no room for the box-drawing lines
-    to read, so the walls become solid blocks instead.
-
-    It sits beside ``widest_that_fits`` because the two are halves of
-    one answer: that function may hand back a width of 1, and a line
-    skin drawn that narrow is a drawing nobody can read. Apart, the
-    agreement between them is written down nowhere; together, it is
-    the next two lines.
-
-    A default and not a rule — ``Drawing.skin`` still takes whatever
-    skin the caller likes.
-    """
-    return STANDARD_SKIN if cell_width >= COMPACT else BLOCKS
+    raise too_small(width, height, needs(WIDTHS[-1]), columns, lines)
 
 
 def render(maze: MazeView, drawing: Drawing | None = None) -> str:
     """Draw a maze and return it as one string, ready to print."""
     plan = drawing or Drawing()
     plan.fit_to(maze)
-    skin, frame = plan.drawn_with(), plan.frame
+    skin = plan.drawn_with()
+    frame = plan.shown_frame if plan.shown_frame is not None else plan.frame
+    message = (plan.shown_message if plan.shown_message is not None
+               else plan.message)
     width, height = maze.get_dim()
     canvas, _ = drawing_size(width, height, plan.cell_width, frame)
     links = paths_links(plan.paths, skin.paths, skin.meeting,
                         maze.get_exit())
     marks: dict[Cell, Element] = {}
+    # First, so that an end or a character standing on one of these
+    # cells is drawn over the filling rather than under it.
+    if skin.forty_two is not None:
+        for filled in maze.get_frozen():
+            marks[filled] = skin.forty_two
     for cell, element in ((plan.char1, skin.char1), (plan.char2, skin.char2),
                           (maze.get_entry(), skin.entry),
                           (maze.get_exit(), skin.exit)):
@@ -706,8 +818,7 @@ def render(maze: MazeView, drawing: Drawing | None = None) -> str:
     if plan.title and frame.head:
         out[frame.head // 2] = band(plan.title, canvas, skin.title)
     out.extend(side + drawn + side for drawn in body)
-    for index in range(frame.tail):
-        text = plan.message[index] if index < len(plan.message) else ""
+    for text in message_lines(message, canvas, frame):
         out.append(band(text, canvas, skin.message))
     return "\n".join(out)
 
