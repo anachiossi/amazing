@@ -1,5 +1,6 @@
 """Reusable maze generator."""
 
+from . import forty_two
 from .generation_config import MazeGenerationConfig
 from .generator import MazeGenerator
 from .maze import Direction, Maze
@@ -9,4 +10,5 @@ from .maze import Direction, Maze
 # modules in it import MazeGenerator from above.
 from . import generators  # noqa: F401,E402  (registration, not use)
 
-__all__ = ["Direction", "Maze", "MazeGenerator", "MazeGenerationConfig"]
+__all__ = ["Direction", "Maze", "MazeGenerator", "MazeGenerationConfig",
+           "forty_two"]

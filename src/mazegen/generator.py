@@ -10,6 +10,7 @@ import random
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
+from . import forty_two
 from .generation_config import MazeGenerationConfig
 from .maze import Direction, Maze
 
@@ -120,6 +121,7 @@ class MazeGenerator(ABC):
         if self.config.seed is not None:
             random.seed(self.config.seed)
         self.maze = self._blank()
+        forty_two.reserve(self.maze)
         yield self.maze
         yield from self._run()
         if not self.config.perfect:
@@ -146,6 +148,29 @@ class MazeGenerator(ABC):
         """
         return Maze(self.config.width, self.config.height)
 
+    def _free_walls(self) -> list[tuple[Cell, Direction]]:
+        """The internal walls an algorithm is allowed to open.
+
+        ``internal_walls`` with the "42" left out. Every generator
+        wants this rather than the full list, so it is written here
+        once instead of in each of them.
+        """
+        return [(cell, side) for cell, side in self.maze.internal_walls()
+                if not self._touches_42(cell, side)]
+
+    def _touches_42(self, cell: Cell, side: Direction) -> bool:
+        """Does that wall have a cell of the "42" on either side of it?
+
+        Asked from both sides, because a wall belongs to two cells and
+        only one of them needs to be part of the shape for the wall to
+        be one that has to stay standing.
+        """
+        col, row = cell
+        if self.maze.is_42(col, row):
+            return True
+        other = self.maze.across(col, row, side)
+        return other in self.maze and self.maze.is_42(*other)
+
     # -----------------------------------------------------------------
     # These two methods are used when PERFECT=false.
     #
@@ -168,7 +193,8 @@ class MazeGenerator(ABC):
         """
         for cell in self.maze.dead_ends():
             col, row = cell
-            shut = self.maze.closed_walls(col, row)
+            shut = [side for side in self.maze.closed_walls(col, row)
+                    if not self._touches_42(cell, side)]
             if shut:
                 self.maze.destroy_wall(col, row, random.choice(shut))
                 yield self.maze
@@ -222,4 +248,5 @@ class MazeGenerator(ABC):
                 for row in range(self.maze.height)
                 for other, side in self.maze.neighbours(col, row)
                 if self.maze.get_wall(col, row, side)
+                and not self._touches_42((col, row), side)
                 and ((col, row) in near) != (other in near)]
