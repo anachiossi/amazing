@@ -110,8 +110,13 @@ class MazeView(Protocol):
         """Where the maze is left, or None if it has no exit."""
         ...
 
-    def get_42(self) -> frozenset[tuple[int, int]]:
-        """The cells that draw the "42", empty if the maze has none."""
+    def get_frozen(self) -> frozenset[tuple[int, int]]:
+        """The cells nothing may open, empty if the maze has none.
+
+        Set aside before the maze was carved, and what draws the
+        "42". A cell of four standing walls is not enough to go on: in
+        a maze being carved that is simply somewhere not reached yet.
+        """
         ...
 
 
@@ -797,7 +802,7 @@ def render(maze: MazeView, drawing: Drawing | None = None) -> str:
     # First, so that an end or a character standing on one of these
     # cells is drawn over the filling rather than under it.
     if skin.forty_two is not None:
-        for filled in maze.get_42():
+        for filled in maze.get_frozen():
             marks[filled] = skin.forty_two
     for cell, element in ((plan.char1, skin.char1), (plan.char2, skin.char2),
                           (maze.get_entry(), skin.entry),

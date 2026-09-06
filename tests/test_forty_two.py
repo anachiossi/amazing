@@ -73,6 +73,20 @@ class ReserveTest(unittest.TestCase):
         for col, row in self.chosen:
             self.assertTrue(self.maze.no_access(col, row))
 
+    def test_the_maze_remembers_which_cells_they_are(self) -> None:
+        self.assertEqual(self.maze.get_frozen(), self.chosen)
+
+    def test_a_cell_off_the_grid_is_refused(self) -> None:
+        with self.assertRaises(IndexError):
+            self.maze.set_frozen([(20, 15)])
+
+    def test_any_iterable_will_do_and_is_kept_as_a_set(self) -> None:
+        """What the caller hands over cannot change the answer later."""
+        handed = [(0, 0), (1, 0), (0, 0)]
+        self.maze.set_frozen(handed)
+        handed.append((2, 0))
+        self.assertEqual(self.maze.get_frozen(), frozenset({(0, 0), (1, 0)}))
+
 
 class GeneratedTest(unittest.TestCase):
     """What the generator does around the shape.
@@ -98,6 +112,7 @@ class GeneratedTest(unittest.TestCase):
                                       perfect=perfect):
                         maze = self._generate(width, height, seed, perfect)
                         expected = forty_two.cells(width, height)
+                        self.assertEqual(maze.get_frozen(), expected)
                         for col, row in expected:
                             self.assertTrue(maze.no_access(col, row))
 
@@ -113,7 +128,7 @@ class GeneratedTest(unittest.TestCase):
                     with self.subTest(size=(width, height), seed=seed,
                                       perfect=perfect):
                         maze = self._generate(width, height, seed, perfect)
-                        glyph = forty_two.cells(width, height)
+                        glyph = maze.get_frozen()
                         playable = {(col, row)
                                     for col in range(width)
                                     for row in range(height)
@@ -121,8 +136,8 @@ class GeneratedTest(unittest.TestCase):
                         self.assertEqual(maze.region_of(0, 0), playable)
 
     def test_a_maze_too_small_simply_goes_without(self) -> None:
-        self.assertFalse(forty_two.fits(6, 6))
         maze = self._generate(6, 6, 0, True)
+        self.assertEqual(maze.get_frozen(), frozenset())
         self.assertEqual(len(maze.region_of(0, 0)), 36)
 
 

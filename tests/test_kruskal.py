@@ -2,8 +2,7 @@
 
 import unittest
 
-from mazegen import (Direction, Maze, MazeGenerationConfig, MazeGenerator,
-                     forty_two)
+from mazegen import Direction, Maze, MazeGenerationConfig, MazeGenerator
 from mazegen.generators.kruskal import Kruskal, _Forest
 
 
@@ -202,9 +201,7 @@ class SeveralSizesTest(unittest.TestCase):
                     # The "42" is sealed off, so the tree spans the
                     # cells left over rather than all of them. 20x15
                     # is the only size here with room for the shape.
-                    sealed = (len(forty_two.cells(width, height))
-                              if forty_two.fits(width, height) else 0)
-                    playable = width * height - sealed
+                    playable = width * height - len(maze.get_frozen())
                     self.assertEqual(len(maze.region_of(0, 0)), playable)
                     self.assertEqual(passage_count(maze), playable - 1)
 

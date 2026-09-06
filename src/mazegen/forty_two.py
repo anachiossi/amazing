@@ -100,4 +100,5 @@ def reserve(maze: Maze) -> frozenset[Cell]:
     chosen = cells(maze.width, maze.height)
     for col, row in chosen:
         maze.build_wall(col, row, ALL_WALLS)
+    maze.set_frozen(chosen)
     return chosen
