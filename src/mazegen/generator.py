@@ -64,6 +64,11 @@ class MazeGenerator(ABC):
     # this back when it lands, being the one that animates best.
     default: str = "kruskal"
 
+    # This set contains the cells that belong to the 42 pattern and
+    # that must not be modified by the generation algorithm. The walls
+    # along side these cells must always be up.
+    frozen: frozenset[Cell] = frozenset()
+
     # The maze being built. This one we just declare as it doesn't
     # exist yet. It is created during the call to carve().
     maze: Maze
@@ -120,8 +125,14 @@ class MazeGenerator(ABC):
         """
         if self.config.seed is not None:
             random.seed(self.config.seed)
+            
         self.maze = self._blank()
-        forty_two.reserve(self.maze)
+
+        # select the frozen cells that must not be modified by the
+        # algorithm and that form the 42 pattern. This is done BEFORE
+        # the algorithm execution itself.
+        self.frozen = forty_two.reserve(self.maze)
+        
         yield self.maze
         yield from self._run()
         if not self.config.perfect:
@@ -166,10 +177,10 @@ class MazeGenerator(ABC):
         be one that has to stay standing.
         """
         col, row = cell
-        if self.maze.is_42(col, row):
+        if cell in self.frozen:
             return True
         other = self.maze.across(col, row, side)
-        return other in self.maze and self.maze.is_42(*other)
+        return other in self.maze and other in self.frozen
 
     # -----------------------------------------------------------------
     # These two methods are used when PERFECT=false.

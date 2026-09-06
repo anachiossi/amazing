@@ -19,7 +19,7 @@ On top of this class it is possible to build the rest:
 
 import random
 from collections import deque
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from enum import IntFlag
 
 
@@ -143,7 +143,6 @@ class Maze:
             self.grid.append(column)
         self._entry: tuple[int, int] | None = None
         self._exit: tuple[int, int] | None = None
-        self._forty_two: frozenset[tuple[int, int]] = frozenset()
         self.set_entry(entry)
         self.set_exit(exit)
 
@@ -231,34 +230,6 @@ class Maze:
     def no_access(self, col: int, row: int) -> bool:
         """Check if a given cell position is closed by all four walls."""
         return self.wall_count(col, row) == 4
-
-    def set_42(self, cells: Iterable[tuple[int, int]]) -> None:
-        """Remember which cells draw the mandatory "42".
-
-        The walls are not touched here: whoever reserves the shape
-        builds them. This records only which cells they are, which is
-        the part a standing wall cannot say for itself.
-        """
-        chosen = frozenset(cells)
-        for col, row in chosen:
-            self._check_bounds(col, row)
-        self._forty_two = chosen
-
-    def get_42(self) -> frozenset[tuple[int, int]]:
-        """The cells that draw the "42", empty if the maze has none."""
-        return self._forty_two
-
-    def is_42(self, col: int, row: int) -> bool:
-        """Is this cell part of the "42"?
-
-        Not the same question as ``no_access``. That one asks whether
-        four walls happen to be standing, which a cell can manage by
-        accident halfway through being carved. This one asks what the
-        cell was set aside to be, and the answer does not change while
-        the generator works around it.
-        """
-        self._check_bounds(col, row)
-        return (col, row) in self._forty_two
 
     def build_wall(self, col: int, row: int, direction: Direction) -> None:
         """Build a wall, updating the neighbouring cell as well.
