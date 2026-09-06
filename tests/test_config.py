@@ -85,12 +85,13 @@ class TestValidConfig(MazeConfigTest):
 
 
 class TestOptionalKeys(MazeConfigTest):
-    """SEED and ALGORITHM may be absent, present, or wrong."""
+    """SEED and the two ALGORITHM keys may be absent, present, wrong."""
 
     def test_absent_optional_keys_are_none(self) -> None:
         config = self.load(VALID)
         self.assertIsNone(config.seed)
-        self.assertIsNone(config.algorithm)
+        self.assertIsNone(config.gen_algorithm)
+        self.assertIsNone(config.solve_algorithm)
 
     def test_seed_is_read_as_an_int(self) -> None:
         config = self.load(VALID + "SEED=42\n")
@@ -98,12 +99,19 @@ class TestOptionalKeys(MazeConfigTest):
         self.assertIsInstance(config.seed, int)
 
     def test_algorithm_is_read_as_a_string(self) -> None:
-        config = self.load(VALID + "ALGORITHM=backtracker\n")
-        self.assertEqual(config.algorithm, "backtracker")
+        config = self.load(VALID + "GEN_ALGORITHM=backtracker\n")
+        self.assertEqual(config.gen_algorithm, "backtracker")
+
+    def test_the_two_algorithms_are_read_apart(self) -> None:
+        """One key names who carves, the other who walks it."""
+        config = self.load(VALID + "GEN_ALGORITHM=kruskal\n"
+                                   "SOLVE_ALGORITHM=bfs\n")
+        self.assertEqual(config.gen_algorithm, "kruskal")
+        self.assertEqual(config.solve_algorithm, "bfs")
 
     def test_both_optional_keys_together(self) -> None:
-        config = self.load(VALID + "SEED=7\nALGORITHM=kruskal\n")
-        self.assertEqual((config.seed, config.algorithm), (7, "kruskal"))
+        config = self.load(VALID + "SEED=7\nGEN_ALGORITHM=kruskal\n")
+        self.assertEqual((config.seed, config.gen_algorithm), (7, "kruskal"))
 
     def test_optional_keys_are_case_insensitive(self) -> None:
         self.assertEqual(self.load(VALID + "seed=99\n").seed, 99)
@@ -198,7 +206,7 @@ class TestToGenerationConfig(MazeConfigTest):
     """The file config becomes mazegen's settings object."""
 
     def test_it_maps_every_generation_field(self) -> None:
-        config = self.load(VALID + "SEED=7\nALGORITHM=kruskal\n")
+        config = self.load(VALID + "SEED=7\nGEN_ALGORITHM=kruskal\n")
         generation = config.to_generation_config()
         self.assertIsInstance(generation, MazeGenerationConfig)
         self.assertEqual(generation.width, 20)

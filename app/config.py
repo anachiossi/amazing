@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from mazegen import MazeGenerationConfig
+from mazegen import MazeGenerationConfig, MazeSolverConfig
 
 
 class MazeConfigError(Exception):
@@ -25,7 +25,8 @@ class MazeConfig:
     # If present, they will be converted.
     optional_keys: dict[str, type] = {
         "seed": int,
-        "algorithm": str,
+        "gen_algorithm": str,
+        "solve_algorithm": str,
     }
 
     keys_limits: dict[str, tuple[int, int]] = {
@@ -180,9 +181,14 @@ class MazeConfig:
         return cast(int | None, self._config.get("seed"))
 
     @property
-    def algorithm(self) -> str | None:
+    def gen_algorithm(self) -> str | None:
         """Requested generation algorithm, None if the file omits it."""
-        return cast(str | None, self._config.get("algorithm"))
+        return cast(str | None, self._config.get("gen_algorithm"))
+
+    @property
+    def solve_algorithm(self) -> str | None:
+        """Requested solving algorithm, None if the file omits it."""
+        return cast(str | None, self._config.get("solve_algorithm"))
 
     def to_generation_config(self) -> MazeGenerationConfig:
         """The same values, as mazegen's settings object.
@@ -196,9 +202,26 @@ class MazeConfig:
             exit_cell=self.exit,
             perfect=self.is_perfect,
             seed=self.seed,
-            algorithm=self.algorithm,
+            algorithm=self.gen_algorithm,
         )
 
+
+    def to_solver_config(self) -> MazeSolverConfig:
+        """The same values, as mazegen's settings object.
+
+        OUTPUT_FILE stays here: generation does not write the file.
+        """
+        return MazeSolverConfig(
+            width=self.width,
+            height=self.height,
+            entry_cell=self.entry,
+            exit_cell=self.exit,
+            perfect=self.is_perfect,
+            seed=self.seed,
+            algorithm=self.solve_algorithm,
+        )
+
+    
     def show_config(self) -> None:
         print("Maze configuration:")
         for key, value in self._config.items():
