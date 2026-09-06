@@ -16,11 +16,12 @@ import re
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from unittest.mock import patch
 
-from app.render.terminal import (BLOCKS, CELL_WIDTH, COMPACT, STANDARD_SKIN,
-                                 Drawing, Frame, TooSmall, drawing_size,
-                                 render, skin_for, widest_that_fits)
+from app.render.terminal import (CELL_WIDTH, WIDTHS, STANDARD_SKIN,
+                                 Drawing, Element, Frame, TooSmall,
+                                 drawing_size, render, widest_that_fits)
 from mazegen import Maze
 
 FRAME = Frame(head=2, tail=3, sides=2)
@@ -78,22 +79,23 @@ class FitTest(unittest.TestCase):
                          CELL_WIDTH)
 
     def test_each_width_where_it_is_the_widest_that_fits(self) -> None:
-        """One column short of a width is the next one down."""
-        for cell_width in (3, 2, 1):
+        """Exactly enough room draws; one column less does not.
+
+        There is a single width now, so one column short of it is not
+        a narrower drawing — it is no drawing.
+        """
+        for cell_width in WIDTHS:
             columns, lines = drawing_size(20, 15, cell_width, FRAME)
             with self.subTest(cell_width=cell_width):
                 self.assertEqual(
                     widest_that_fits(20, 15, (columns, lines), FRAME),
                     cell_width)
-                if cell_width > 1:
-                    self.assertLess(
-                        widest_that_fits(20, 15, (columns - 1, lines),
-                                         FRAME),
-                        cell_width)
+                with self.assertRaises(TooSmall):
+                    widest_that_fits(20, 15, (columns - 1, lines), FRAME)
 
     def test_what_fits_really_fits(self) -> None:
         """The drawing at the chosen width is never wider than asked."""
-        for columns in range(45, 130, 7):
+        for columns in range(85, 130, 7):
             with self.subTest(columns=columns):
                 cell_width = widest_that_fits(20, 15, (columns, 40), FRAME)
                 drawn = plain(render(Maze(20, 15),
@@ -118,11 +120,26 @@ class FitTest(unittest.TestCase):
         with self.assertRaises(TooSmall) as raised:
             widest_that_fits(20, 15, (30, 10), FRAME)
         message = str(raised.exception)
-        columns, lines = drawing_size(20, 15, 1, FRAME)
+        columns, lines = drawing_size(20, 15, CELL_WIDTH, FRAME)
         self.assertIn(str(columns), message)
         self.assertIn(str(lines), message)
         self.assertIn("30", message)
         self.assertIn("10", message)
+
+    def test_the_message_says_which_way_it_is_short(self) -> None:
+        """Both numbers are there; only one of them is the problem."""
+        with self.assertRaises(TooSmall) as raised:
+            widest_that_fits(20, 15, (200, 30), FRAME)
+        self.assertIn("6 lines short", str(raised.exception))
+        with self.assertRaises(TooSmall) as raised:
+            widest_that_fits(20, 15, (60, 40), FRAME)
+        self.assertIn("25 columns short", str(raised.exception))
+
+    def test_the_message_says_what_to_do_about_it(self) -> None:
+        """A terminal holds more when its text is smaller, so say so."""
+        with self.assertRaises(TooSmall) as raised:
+            widest_that_fits(20, 15, (30, 10), FRAME)
+        self.assertIn("ctrl and minus", str(raised.exception))
 
 
 class DefaultSpaceTest(unittest.TestCase):
@@ -138,7 +155,7 @@ class DefaultSpaceTest(unittest.TestCase):
 
     def test_no_space_reads_the_terminal(self) -> None:
         """Omitting the space is the same as passing what it would read."""
-        for columns in (120, 70, 50):
+        for columns in (120, 100, 86):
             with self.subTest(columns=columns):
                 with self.fake_terminal(columns, 40):
                     self.assertEqual(
@@ -161,29 +178,22 @@ class DefaultSpaceTest(unittest.TestCase):
 class DrawnWithTest(unittest.TestCase):
     """Which skin a drawing is drawn with when it does not say."""
 
-    def test_a_drawing_that_says_nothing_gets_the_fitting_skin(self) -> None:
-        """The default follows the cell width, so the two cannot clash."""
+    def test_a_drawing_that_says_nothing_gets_the_standard_skin(self) -> None:
+        """There is one skin, and it is what a drawing gets."""
         self.assertIs(Drawing().drawn_with(), STANDARD_SKIN)
-        self.assertIs(Drawing(cell_width=COMPACT).drawn_with(),
-                      STANDARD_SKIN)
-        self.assertIs(Drawing(cell_width=1).drawn_with(), BLOCKS)
+        self.assertIs(Drawing(cell_width=1).drawn_with(), STANDARD_SKIN)
 
     def test_a_skin_named_wins(self) -> None:
         """Saying which skin is still saying it, at any width."""
-        self.assertIs(Drawing(cell_width=1, skin=STANDARD_SKIN).drawn_with(),
-                      STANDARD_SKIN)
-        self.assertIs(Drawing(cell_width=CELL_WIDTH,
-                              skin=BLOCKS).drawn_with(), BLOCKS)
+        other = replace(STANDARD_SKIN, floor=Element("."))
+        self.assertIs(Drawing(skin=other).drawn_with(), other)
+        self.assertIs(Drawing(cell_width=1, skin=other).drawn_with(), other)
 
     def test_it_is_the_skin_the_drawing_is_made_of(self) -> None:
-        """Not just the answer: the symbols on screen follow it too.
-
-        A one-character cell drawn without naming a skin comes out in
-        blocks, which is the pairing this default exists to hold.
-        """
-        drawing = plain(render(Maze(3, 2), Drawing(cell_width=1)))
-        self.assertIn(BLOCKS.wall.joints[15], drawing)
-        self.assertNotIn(STANDARD_SKIN.wall.joints[15], drawing)
+        """Not just the answer: the symbols on screen follow it too."""
+        other = replace(STANDARD_SKIN, floor=Element("."))
+        drawing = plain(render(Maze(3, 2), Drawing(skin=other)))
+        self.assertIn(".", drawing)
 
 
 class FittedDrawingTest(unittest.TestCase):
@@ -198,14 +208,18 @@ class FittedDrawingTest(unittest.TestCase):
         self.assertEqual(plan.cell_width, CELL_WIDTH)
 
     def test_it_settles_the_width_against_the_space(self) -> None:
-        """With fit, the widest that fits wins over the default."""
-        for columns, expected in ((120, 3), (70, 2), (50, 1)):
+        """With fit, the widest that fits wins over the default.
+
+        There is one width to settle on, so this says the fit reaches
+        it rather than keeping whatever the drawing was made with.
+        """
+        for columns in (120, 90, 86):
             with self.subTest(columns=columns):
-                plan = Drawing(fit=True)
+                plan = Drawing(fit=True, cell_width=1)
                 with patch("shutil.get_terminal_size",
                            return_value=os.terminal_size((columns, 40))):
-                    self.assertEqual(plan.fit_to(Maze(20, 15)), expected)
-                self.assertEqual(plan.cell_width, expected)
+                    self.assertEqual(plan.fit_to(Maze(20, 15)), CELL_WIDTH)
+                self.assertEqual(plan.cell_width, CELL_WIDTH)
 
     def test_the_width_is_kept_for_whoever_asks_after(self) -> None:
         """The caption reads the same number that was drawn.
@@ -216,7 +230,7 @@ class FittedDrawingTest(unittest.TestCase):
         """
         plan = Drawing(fit=True)
         with patch("shutil.get_terminal_size",
-                   return_value=os.terminal_size((70, 40))):
+                   return_value=os.terminal_size((120, 40))):
             plan.fit_to(Maze(20, 15))
             drawn = plain(render(Maze(20, 15), plan)).split("\n")
         self.assertEqual(
@@ -226,10 +240,10 @@ class FittedDrawingTest(unittest.TestCase):
     def test_rendering_fits_without_being_asked_first(self) -> None:
         """``render`` settles it too, for a caller that does not care."""
         with patch("shutil.get_terminal_size",
-                   return_value=os.terminal_size((50, 40))):
+                   return_value=os.terminal_size((120, 40))):
             drawn = plain(render(Maze(20, 15), Drawing(fit=True)))
         self.assertEqual(len(drawn.split("\n")[0]),
-                         drawing_size(20, 15, 1, FRAME)[0])
+                         drawing_size(20, 15, CELL_WIDTH, FRAME)[0])
 
     def test_no_room_at_any_width_raises(self) -> None:
         """Nothing fits, so there is no drawing and no width to give."""
@@ -238,42 +252,6 @@ class FittedDrawingTest(unittest.TestCase):
                    return_value=os.terminal_size((30, 10))):
             with self.assertRaises(TooSmall):
                 plan.fit_to(Maze(20, 15))
-
-
-class SkinTierTest(unittest.TestCase):
-    """Which skin goes with which width."""
-
-    def test_letters_while_there_is_room_for_them(self) -> None:
-        """Two characters wide still fits a symbol and its walls."""
-        self.assertIs(skin_for(CELL_WIDTH), STANDARD_SKIN)
-        self.assertIs(skin_for(COMPACT), STANDARD_SKIN)
-
-    def test_blocks_when_there_is_not(self) -> None:
-        """One character wide has nowhere to draw a line."""
-        self.assertIs(skin_for(1), BLOCKS)
-
-    def test_every_width_that_fits_gets_a_skin_that_reads(self) -> None:
-        """The pair holds across the whole range, not just at one size.
-
-        ``widest_that_fits`` may hand back 1, and a line skin drawn
-        that narrow has no room to turn a corner. This is the check
-        that the two agree — the reason they live side by side.
-        """
-        for columns in range(16, 96, 5):
-            for lines in range(10, 44, 3):
-                try:
-                    width = widest_that_fits(8, 5, (columns, lines), FRAME)
-                except TooSmall:
-                    continue
-                with self.subTest(columns=columns, lines=lines):
-                    self.assertIs(skin_for(width),
-                                  BLOCKS if width == 1 else STANDARD_SKIN)
-
-    def test_the_block_skin_still_marks_the_ends(self) -> None:
-        """A cell one character wide holds one symbol, so it keeps it."""
-        self.assertTrue(BLOCKS.entry.symbol.strip())
-        self.assertTrue(BLOCKS.exit.symbol.strip())
-        self.assertNotEqual(BLOCKS.entry.symbol, BLOCKS.exit.symbol)
 
 
 if __name__ == "__main__":

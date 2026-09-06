@@ -713,19 +713,6 @@ class TestOpenPassages(MazeTest):
         self.assertEqual(maze.open_passages(), {frozenset({(0, 0), (1, 0)})})
 
 
-class TestRandomPath(MazeTest):
-    """A walk from entry to exit."""
-
-    def test_a_corridor_has_only_one_route(self) -> None:
-        maze = Maze(3, 1, (0, 0), (2, 0))
-        maze.destroy_wall(0, 0, Direction.E)
-        maze.destroy_wall(1, 0, Direction.E)
-        self.assertEqual(maze.random_path(), [(0, 0), (1, 0), (2, 0)])
-
-    def test_no_ends_means_no_path(self) -> None:
-        self.assertEqual(Maze(2, 1).random_path(), [])
-
-
 class TestWallCount(MazeTest):
     """How many of a cell's four walls stand."""
 

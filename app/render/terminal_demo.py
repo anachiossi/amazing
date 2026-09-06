@@ -1,6 +1,7 @@
 """A tour of the terminal renderer:  python3 -m app.render.terminal_demo
 
-Every size the renderer draws at, then the same maze animated. It
+The renderer drawing a maze, a maze being carved, then the same
+maze animated. It
 lives beside the renderer rather than inside it: nothing here is part
 of drawing a maze, and the route below is a stand-in for a solver that
 does not exist yet.
@@ -9,13 +10,13 @@ does not exist yet.
 import random
 from dataclasses import replace
 
-from mazegen import Maze
+from mazegen import Maze, MazeGenerationConfig, MazeGenerator
 
-from .terminal import BLOCKS, STANDARD_SKIN, Drawing, animate, show
+from .terminal import STANDARD_SKIN, Drawing, animate, show
 
 
 def main() -> None:
-    """Draw a maze at each size, then animate the way through it.
+    """Draw a maze, then animate the way through it.
 
     The maze is Leo's ``randomize()``: every wall thrown on its own,
     with no promise that anywhere can be reached from anywhere. Seed
@@ -36,14 +37,11 @@ def main() -> None:
               (7, 1), (7, 0), (8, 0), (9, 0), (9, 1), (9, 2), (9, 3),
               (9, 4)]
 
-    for caption, cell_width, skin in (
-            ("full — walls, symbols, room to breathe", 3, STANDARD_SKIN),
-            ("compact — the same, tighter", 2, STANDARD_SKIN),
-            ("blocks — a cell is one character", 1, BLOCKS)):
-        print(f"\n{caption}\n")
-        show(maze, Drawing(paths=[solved],
-                           title="A-MAZE-ING", message=[caption],
-                           skin=skin, cell_width=cell_width))
+    caption = "walls, symbols, room to breathe"
+    print(f"\n{caption}\n")
+    show(maze, Drawing(paths=[solved], title="A-MAZE-ING",
+                       message=[caption], skin=STANDARD_SKIN,
+                       cell_width=3))
 
     try:
         input("\npress enter to run the animations ")
@@ -52,10 +50,26 @@ def main() -> None:
         # wanted.
         return
 
+    # The generator carving, which is the one beat where the "42"
+    # arrives. It is sealed before the first wall comes down, and the
+    # renderer holds its colour back until the maze around each of its
+    # cells is carved — so the shape is never drawn, it is uncovered.
+    #
+    # Its own maze, and the smallest the shape fits in: the one above
+    # is 10x5 and carries a route written out by hand for seed 168.
+    carving = MazeGenerationConfig(11, 9, (0, 0), (10, 8),
+                                   perfect=False, seed=3)
+    generator = MazeGenerator.from_config(carving)
+    plan = Drawing(title="A-MAZE-ING", fit=True,
+                   message=["carving — the 42 comes out of the maze"])
+    animate(generator.carve(), plan, delay=0.05)
+    animate((generator.maze,),
+            replace(plan, message=["carved — and the 42 it left behind"]),
+            delay=2.0, reveal=False)
+
     # The maze stands with its two ends; then one search walks it; then
-    # two do, from both ends at once. There is no carving to watch yet —
-    # randomize() throws every wall at once, so there is no order to it;
-    # that beat arrives with the generator.
+    # two do, from both ends at once. Back to the 10x5 one: it is the
+    # route through it that the searches below walk.
     ends = Drawing(title="A-MAZE-ING",
                    message=["the way in, and the way out"])
     animate((maze,), ends, delay=1.0)

@@ -14,7 +14,7 @@ OUTPUT_FILE=maze.txt
 
 # True  : exactly one path between entry and exit, no loops
 # False : playable board with at least two independent routes
-PERFECT=True
+PERFECT=False
 
 # Optional. SEED fixes the random generation so the same maze comes
 # back every run; leave it out for a different maze each time.
@@ -22,4 +22,5 @@ PERFECT=True
 
 # Optional. Which generation algorithm to use.
 # Written so far: kruskal. Backtracker and division are coming.
-#ALGORITHM=kruskal
+GEN_ALGORITHM=kruskal
+SOLVE_ALGORITHM=bfs

@@ -498,20 +498,29 @@ class FrameTest(TerminalTest):
         self.assertEqual(len(quiet), len(talking))
         self.assertEqual(quiet[:-3], talking[:-3])
 
-    def test_a_long_message_is_cut(self) -> None:
-        """The frame stays rigid: the tail clips, it does not wrap."""
+    def test_a_long_message_is_wrapped(self) -> None:
+        """The tail grows to hold it, and every character survives."""
         frame = Frame(head=1, tail=2, sides=1)
         lines = drawn(Maze(3, 2), Drawing(message=["x" * 200],
-                                           frame=frame)).split("\n")
+                                          frame=frame)).split("\n")
         self.assertEqual({len(line) for line in lines}, {len(lines[0])})
+        self.assertEqual("".join(lines).count("x"), 200)
 
     def test_more_lines_than_the_tail_holds(self) -> None:
-        """A message longer than the tail stops at the tail's edge."""
+        """A message past the tail makes the tail taller, not shorter."""
         frame = Frame(head=0, tail=1, sides=0)
         lines = drawn(Maze(3, 2), Drawing(message=["one", "two"],
+                                          frame=frame)).split("\n")
+        self.assertIn("one", lines[-2])
+        self.assertIn("two", lines[-1])
+
+    def test_a_message_that_fits_is_left_alone(self) -> None:
+        """Spacing put there on purpose is not spent unless it has to be."""
+        frame = Frame(head=0, tail=1, sides=0)
+        spaced = "R  redraw   Q  quit"
+        lines = drawn(Maze(12, 2), Drawing(message=[spaced],
                                            frame=frame)).split("\n")
-        self.assertIn("one", lines[-1])
-        self.assertNotIn("two", "\n".join(lines))
+        self.assertIn(spaced, lines[-1])
 
 
 class ColourTest(TerminalTest):
