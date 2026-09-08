@@ -1,19 +1,10 @@
-<!-- STUB -->
+# MIT License
 
-# STUB — the licence has not been chosen yet
+This licence covers the whole of this repository, including the
+reusable `mazegen` package: anyone, including any later project built
+on it, may reuse, modify and redistribute it under the terms below.
 
-Choosing this licence is part of the assignment. The subject requires a
-licence that **explicitly allows the reuse and distribution** of the
-`mazegen` package by later projects, so whatever is picked must permit
-that. Replace this whole file once the team has decided.
-
-The text below is an MIT skeleton, kept only as a starting point.
-
----
-
-MIT License
-
-Copyright (c) 2026 <LOGIN 1>, <LOGIN 2>
+Copyright (c) 2026 Leonardo Tamiano, Ana Carolina De Morais Chiossi
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the
