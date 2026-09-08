@@ -11,10 +11,10 @@ venv/
 .venv/
 mlx/venv/
 
-# Build artifacts — the wheel is rebuilt live during the defense
+# Build artifacts. The wheel itself is committed: the subject asks for
+# a pip-installable mazegen-* file at the root of the repository.
 build/
 dist/
-mazegen-*.whl
 mazegen-*.tar.gz
 
 # Generated mazes
