@@ -56,16 +56,13 @@ import textwrap
 import time
 import tty
 from dataclasses import dataclass, field, replace
-from typing import Iterable, Protocol, Sequence
+from typing import Iterable, Sequence
 
 import rainbow
-from mazegen import Direction
+from mazegen import Cell, Direction, Maze, Path, Paths
 
-Cell = tuple[int, int]
-Path = Sequence[Cell]
-Paths = Sequence[Path]
-VisitedA = Sequence[Cell]
-VisitedB = Sequence[Cell]
+VisitedA = Path
+VisitedB = Path
 
 # What a cell on a path knows: the sides it links to, and the element
 # of the path that drew it.
@@ -80,46 +77,6 @@ CELL_WIDTH = 3
 # skin: the box-drawing needs room to turn a corner, so a cell
 # narrower than this is not a tighter drawing but an unreadable one.
 WIDTHS = (CELL_WIDTH,)
-
-
-class MazeView(Protocol):
-    """What a renderer is allowed to know about a maze.
-
-    A ``Protocol`` is a shape, not a base class: ``Maze`` satisfies it
-    by having these five methods and never hears of it. Declaring the
-    parameter as a ``MazeView`` is what keeps the renderer read-only —
-    mypy rejects any use of the maze beyond these five methods.
-
-    The ends are read rather than handed over because they belong to
-    the maze: the same two cells the solver walks between and the file
-    format writes in its footer. A drawing that carried its own copy
-    could disagree with the maze it was drawn from.
-    """
-
-    def get_dim(self) -> tuple[int, int]:
-        """Maze width and height, in cells."""
-        ...
-
-    def get_wall(self, col: int, row: int, direction: Direction) -> bool:
-        """Does a wall exist on that side of the cell?"""
-        ...
-
-    def get_entry(self) -> tuple[int, int] | None:
-        """Where the maze is entered, or None if it has no entry."""
-        ...
-
-    def get_exit(self) -> tuple[int, int] | None:
-        """Where the maze is left, or None if it has no exit."""
-        ...
-
-    def get_frozen(self) -> frozenset[tuple[int, int]]:
-        """The cells nothing may open, empty if the maze has none.
-
-        Set aside before the maze was carved, and what draws the
-        "42". A cell of four standing walls is not enough to go on: in
-        a maze being carved that is simply somewhere not reached yet.
-        """
-        ...
 
 
 @dataclass(frozen=True)
@@ -273,7 +230,7 @@ class Drawing:
     shown_message: Sequence[str] | None = field(default=None, init=False,
                                                 repr=False)
 
-    def fit_to(self, maze: MazeView) -> int:
+    def fit_to(self, maze: Maze) -> int:
         """Settle the cell width for that maze, and return it.
 
         Without ``fit`` the width already named stands. With it, the
@@ -300,7 +257,7 @@ class Drawing:
         return self.skin if self.skin is not None else STANDARD_SKIN
 
 
-def horizontal(maze: MazeView, col: int, row: int) -> bool:
+def horizontal(maze: Maze, col: int, row: int) -> bool:
     """Is there a horizontal wall segment above cell (col, row)?
 
     The N and S edges of the maze are walled by definition; inside,
@@ -314,7 +271,7 @@ def horizontal(maze: MazeView, col: int, row: int) -> bool:
     return maze.get_wall(col, row, Direction.N)
 
 
-def vertical(maze: MazeView, col: int, row: int) -> bool:
+def vertical(maze: Maze, col: int, row: int) -> bool:
     """Is there an upright wall segment left of cell (col, row)?
 
     The W and E edges of the maze are walled by definition; inside,
@@ -328,7 +285,7 @@ def vertical(maze: MazeView, col: int, row: int) -> bool:
     return maze.get_wall(col, row, Direction.W)
 
 
-def path_links(path: Sequence[Cell]) -> dict[Cell, int]:
+def path_links(path: Path) -> dict[Cell, int]:
     """The shape of the path line going in and out of each cell?
 
     The path is the route the solver walks, entry to exit. This gives
@@ -400,7 +357,7 @@ def paint(text: str, element: Element) -> str:
 # The maze itself: one wall line and one cell line per row.
 
 
-def junction(maze: MazeView, col: int, row: int,
+def junction(maze: Maze, col: int, row: int,
              skin: TerminalSkin) -> tuple[str, Element]:
     """Return the piece that belongs where four walls could meet."""
 
@@ -419,7 +376,7 @@ def junction(maze: MazeView, col: int, row: int,
     return element.piece(sides), element
 
 
-def _horizontal_line(maze: MazeView, row: int, plan: Drawing,
+def _horizontal_line(maze: Maze, row: int, plan: Drawing,
                      links: dict[Cell, Link]) -> str:
     """Return the horizontal line that runs above a row of cells.
 
@@ -452,7 +409,7 @@ def _horizontal_line(maze: MazeView, row: int, plan: Drawing,
     return "".join(out)
 
 
-def _centre_line(maze: MazeView, row: int, plan: Drawing,
+def _centre_line(maze: Maze, row: int, plan: Drawing,
                  links: dict[Cell, Link],
                  marks: dict[Cell, Element]) -> str:
     """Return the line through a row: its walls and its centres.
@@ -480,7 +437,7 @@ def _centre_line(maze: MazeView, row: int, plan: Drawing,
     return "".join(out)
 
 
-def line(maze: MazeView, char_row: int, plan: Drawing,
+def line(maze: Maze, char_row: int, plan: Drawing,
          links: dict[Cell, Link],
          marks: dict[Cell, Element]) -> str:
     """Return one line of the maze, whichever kind it is.
@@ -788,7 +745,7 @@ def widest_that_fits(width: int, height: int,
     raise too_small(width, height, needs(WIDTHS[-1]), columns, lines)
 
 
-def render(maze: MazeView, drawing: Drawing | None = None) -> str:
+def render(maze: Maze, drawing: Drawing | None = None) -> str:
     """Draw a maze and return it as one string, ready to print."""
     plan = drawing or Drawing()
     plan.fit_to(maze)
@@ -825,12 +782,12 @@ def render(maze: MazeView, drawing: Drawing | None = None) -> str:
     return "\n".join(out)
 
 
-def show(maze: MazeView, drawing: Drawing | None = None) -> None:
+def show(maze: Maze, drawing: Drawing | None = None) -> None:
     """Print a maze in colour, for a quick look."""
     print(render(maze, drawing))
 
 
-def redraw(maze: MazeView, drawing: Drawing | None = None) -> None:
+def redraw(maze: Maze, drawing: Drawing | None = None) -> None:
     """Wipe the screen and print the maze, so the next frame sits on top."""
     clear_screen()
     show(maze, drawing)
@@ -856,7 +813,7 @@ WALL_COLOURS = (
 )
 
 
-def palette_line(maze: MazeView, drawing: Drawing) -> str:
+def palette_line(maze: Maze, drawing: Drawing) -> str:
     """Numbered swatches, centred on the same canvas as the message."""
     parts: list[str] = []
     for index, name in enumerate(WALL_COLOURS, start=1):
@@ -891,11 +848,11 @@ def apply_wall_colour(drawing: Drawing, colour: str) -> None:
 class AnimationFrame:
     """One animation snapshot: maze state together with its drawing."""
 
-    maze: MazeView
+    maze: Maze
     drawing: Drawing = field(default_factory=Drawing)
 
 
-def path_frames(maze: MazeView, drawing: Drawing) -> Iterable[AnimationFrame]:
+def path_frames(maze: Maze, drawing: Drawing) -> Iterable[AnimationFrame]:
     """Yield snapshots that reveal every path one cell at a time.
 
     Each route grows by a cell per frame, which is what makes two
@@ -912,7 +869,7 @@ def clear_screen() -> None:
     sys.stdout.write("\033[H\033[J")
 
 
-def animate(frames: Iterable[MazeView | AnimationFrame],
+def animate(frames: Iterable[Maze | AnimationFrame],
             drawing: Drawing | None = None,
             delay: float = 0.05, reveal: bool = True) -> None:
     """Draw one maze after another in place, as a moving picture.

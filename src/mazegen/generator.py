@@ -12,9 +12,8 @@ from collections.abc import Iterator
 
 from . import forty_two
 from .generation_config import MazeGenerationConfig
-from .maze import Direction, Maze
+from .maze import Cell, Direction, Maze
 
-Cell = tuple[int, int]
 # A passage between two cells, held as the pair it joins so that it
 # reads the same from either side.
 Edge = frozenset[Cell]

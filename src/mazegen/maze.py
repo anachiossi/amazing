@@ -19,8 +19,20 @@ On top of this class it is possible to build the rest:
 
 import random
 from collections import deque
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from enum import IntFlag
+
+# The three names the whole program speaks in. A cell is where it is,
+# (col, row); a path is the cells walked through in order; and a maze
+# may be drawn with more than one path over it at once.
+#
+# They live here, beside the Maze they describe, because everything
+# else — the generator, the solver, both renderers — is written in
+# terms of them, and a copy in each of those files is a copy that can
+# quietly come to mean something else.
+Cell = tuple[int, int]
+Path = Sequence[Cell]
+Paths = Sequence[Path]
 
 
 class Direction(IntFlag):
@@ -122,8 +134,8 @@ class Maze:
     """
 
     def __init__(self, width: int, height: int,
-                 entry: tuple[int, int] | None = None,
-                 exit: tuple[int, int] | None = None) -> None:
+                 entry: Cell | None = None,
+                 exit: Cell | None = None) -> None:
         """initialize each element of the grid with the value ALL_WALLS
 
         The ends are optional and default to nothing, so every caller
@@ -141,32 +153,32 @@ class Maze:
             for _row in range(height):
                 column.append(ALL_WALLS)
             self.grid.append(column)
-        self._entry: tuple[int, int] | None = None
-        self._exit: tuple[int, int] | None = None
-        self._frozen: frozenset[tuple[int, int]] = frozenset()
+        self._entry: Cell | None = None
+        self._exit: Cell | None = None
+        self._frozen: frozenset[Cell] = frozenset()
         self.set_entry(entry)
         self.set_exit(exit)
 
     def get_dim(self) -> tuple[int, int]:
         return self.width, self.height
 
-    def get_entry(self) -> tuple[int, int] | None:
+    def get_entry(self) -> Cell | None:
         """Where the maze is entered, or None if it has no entry."""
         return self._entry
 
-    def set_entry(self, cell: tuple[int, int] | None) -> None:
+    def set_entry(self, cell: Cell | None) -> None:
         """Set where the maze is entered, or None to have no entry."""
         self._entry = self._checked_end(cell, "entry")
 
-    def get_exit(self) -> tuple[int, int] | None:
+    def get_exit(self) -> Cell | None:
         """Where the maze is left, or None if it has no exit."""
         return self._exit
 
-    def set_exit(self, cell: tuple[int, int] | None) -> None:
+    def set_exit(self, cell: Cell | None) -> None:
         """Set where the maze is left, or None to have no exit."""
         self._exit = self._checked_end(cell, "exit")
 
-    def get_frozen(self) -> frozenset[tuple[int, int]]:
+    def get_frozen(self) -> frozenset[Cell]:
         """The cells nothing may open, empty if none were set aside.
 
         These are the fully closed cells the generator sealed before
@@ -177,7 +189,7 @@ class Maze:
         """
         return self._frozen
 
-    def set_frozen(self, cells: Iterable[tuple[int, int]]) -> None:
+    def set_frozen(self, cells: Iterable[Cell]) -> None:
         """Set aside the cells nothing may open.
 
         Taken as any iterable and kept as a frozenset, so that a
@@ -197,8 +209,8 @@ class Maze:
                 )
         self._frozen = chosen
 
-    def _checked_end(self, cell: tuple[int, int] | None,
-                     name: str) -> tuple[int, int] | None:
+    def _checked_end(self, cell: Cell | None,
+                     name: str) -> Cell | None:
         """Refuse an end that is not a cell of this maze.
 
         An end outside the grid is a mistake in the caller, and one
@@ -215,7 +227,7 @@ class Maze:
             )
         return cell
 
-    def __contains__(self, cell: tuple[int, int]) -> bool:
+    def __contains__(self, cell: Cell) -> bool:
         """Tell whether the cell belongs to the grid.
 
         This is the public way to ask the question that _is_inside()
@@ -359,14 +371,14 @@ class Maze:
                 self.destroy_wall(col, row, side)
 
     def across(self, col: int, row: int, side: Direction
-               ) -> tuple[int, int]:
+               ) -> Cell:
         """The cell that side leads to, even if it falls off the grid."""
         self._check_bounds(col, row)
         step_col, step_row = side.step()
         return col + step_col, row + step_row
 
     def neighbours(self, col: int, row: int
-                   ) -> list[tuple[tuple[int, int], Direction]]:
+                   ) -> list[tuple[Cell, Direction]]:
         """The cells beside this one, each with the side it lies through.
 
         Walls are not looked at: these are the cells that exist next to
@@ -379,7 +391,7 @@ class Maze:
         written five times and wrong once.
         """
         self._check_bounds(col, row)
-        cells: list[tuple[tuple[int, int], Direction]] = []
+        cells: list[tuple[Cell, Direction]] = []
         for side in Direction:
             neighbour = self.across(col, row, side)
             if neighbour in self:
@@ -395,7 +407,7 @@ class Maze:
                 if self.get_wall(col, row, side)]
 
     def passages(self, col: int, row: int
-                 ) -> list[tuple[tuple[int, int], Direction]]:
+                 ) -> list[tuple[Cell, Direction]]:
         """The neighbours this cell has a way through to.
 
         ``neighbours`` with the closed sides left out, so the walls are
@@ -409,7 +421,7 @@ class Maze:
         return [(cell, side) for cell, side in self.neighbours(col, row)
                 if not self.get_wall(col, row, side)]
 
-    def internal_walls(self) -> Iterator[tuple[tuple[int, int], Direction]]:
+    def internal_walls(self) -> Iterator[tuple[Cell, Direction]]:
         """Every wall between two cells, given once.
 
         Only the East and South sides are looked at, so that each wall
@@ -426,13 +438,13 @@ class Maze:
                     if self.across(col, row, side) in self:
                         yield (col, row), side
 
-    def open_passages(self) -> set[frozenset[tuple[int, int]]]:
+    def open_passages(self) -> set[frozenset[Cell]]:
         """Every open passage between two cells, each counted once."""
         return {frozenset(((col, row), self.across(col, row, side)))
                 for (col, row), side in self.internal_walls()
                 if not self.get_wall(col, row, side)}
 
-    def dead_ends(self) -> list[tuple[int, int]]:
+    def dead_ends(self) -> list[Cell]:
         """Cells with one way in and out: three walls standing."""
         return [(col, row)
                 for col in range(self.width)
@@ -440,8 +452,8 @@ class Maze:
                 if self.wall_count(col, row) == 3]
 
     def region_of(self, col: int, row: int,
-                  banned: frozenset[tuple[int, int]] | None = None
-                  ) -> frozenset[tuple[int, int]]:
+                  banned: frozenset[Cell] | None = None
+                  ) -> frozenset[Cell]:
         """Every cell reachable from this one, walls taken into account.
 
         ``banned`` is one passage to pretend closed, so a choke point

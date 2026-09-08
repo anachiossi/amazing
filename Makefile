@@ -29,7 +29,7 @@ MYPY_FLAGS := --warn-return-any --warn-unused-ignores \
 	          --ignore-missing-imports --disallow-untyped-defs \
 	          --check-untyped-defs
 
-.PHONY: install run debug demo preview clean fclean lint lint-strict \
+.PHONY: install run debug preview clean fclean lint lint-strict \
         test check-all help
 
 # First target of the file, so a bare "make" lands here.
@@ -50,7 +50,6 @@ help:
 	'debug'   'run it under pdb'
 	@printf '\n$(MAGENTA)$(BOLD)%s$(RESET)\n' 'Preview'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
-	'demo'    'draw a maze step by step, then animate it' \
 	'preview' 'same as run: the maze fitted to this terminal'
 	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Checks'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
@@ -66,7 +65,7 @@ help:
 	@printf '$(DIM)%s$(RESET)\n' \
 	'First time here: run "make install" once, then any target above.' \
 	'The package lives in src/, so outside $(VENV) it is not on the path:' \
-	'  PYTHONPATH=src python3 -m app.render.terminal_demo' \
+	'  PYTHONPATH=src python3 $(MAIN) $(CONFIG)' \
 	'  PYTHONPATH=src python3 -m unittest discover -s tests -t .'
 
 install: $(STAMP)
@@ -85,12 +84,6 @@ run: $(STAMP)
 
 debug: $(STAMP)
 	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)
-
-# The renderer drawn one step at a time — canvas, floor, walls,
-# border, junctions, path, marks, title — and then the same maze
-# animated. It pauses once, before the animation.
-demo: $(STAMP)
-	$(VPYTHON) -m app.render.terminal_demo
 
 # The maze $(CONFIG) asks for, drawn at whatever size the terminal
 # can take: full cells if there is room, blocks if there is not. Same

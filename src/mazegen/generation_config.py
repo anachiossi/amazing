@@ -5,7 +5,7 @@ program's ``config.txt`` reader; that lives in ``app/`` and translates
 into this.
 """
 
-Cell = tuple[int, int]
+from .maze import Cell
 
 
 class MazeGenerationConfig:

@@ -1,5 +1,5 @@
 
-Cell = tuple[int, int]
+from .maze import Cell
 
 
 class MazeSolverConfig:

@@ -5,7 +5,7 @@ from .generation_config import MazeGenerationConfig
 from .solver_config import MazeSolverConfig
 from .generator import MazeGenerator
 from .solver import MazeSolver
-from .maze import Direction, Maze
+from .maze import Cell, Direction, Maze, Path, Paths
 
 # Imported for the side effect: it is what registers the algorithms,
 # so ``MazeGenerator.from_config`` and ``MazeSolver.from_config``
@@ -14,5 +14,6 @@ from .maze import Direction, Maze
 from . import generators  # noqa: F401,E402  (registration, not use)
 from . import solvers  # noqa: F401,E402  (registration, not use)
 
-__all__ = ["Direction", "Maze", "MazeGenerator", "MazeGenerationConfig",
+__all__ = ["Cell", "Direction", "Maze", "Path", "Paths",
+           "MazeGenerator", "MazeGenerationConfig",
            "forty_two", "MazeSolverConfig", "MazeSolver"]

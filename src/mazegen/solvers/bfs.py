@@ -1,9 +1,9 @@
 """Breadth-first search: the shortest way out, counted in steps."""
 
 from collections import deque
-from typing import Sequence
 
-from ..solver import Cell, MazeSolver
+from ..maze import Cell, Path
+from ..solver import MazeSolver
 
 
 class BFS(MazeSolver):
@@ -47,5 +47,5 @@ class BFS(MazeSolver):
                     self.parent[child] = current_cell
             return 0
 
-    def get_visited_animation(self) -> Sequence[Cell]:
+    def get_visited_animation(self) -> Path:
         return self.visited_animation

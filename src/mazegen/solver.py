@@ -2,13 +2,12 @@
 import random
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from typing import Sequence, Any
+from typing import Any
 
 from . import forty_two
 from .solver_config import MazeSolverConfig
-from .maze import Direction, Maze
+from .maze import Cell, Direction, Maze, Path
 
-Cell = tuple[int, int]
 # A passage between two cells, held as the pair it joins so that it
 # reads the same from either side.
 Edge = frozenset[Cell]
@@ -43,7 +42,7 @@ class MazeSolver(ABC):
             )
         return cls.algorithms[chosen](config)
 
-    def solve(self, maze: Maze) -> Sequence[Cell]:
+    def solve(self, maze: Maze) -> Path:
         self.maze = maze
         self._initstruct()
         while self._step() == 0:
@@ -55,6 +54,6 @@ class MazeSolver(ABC):
         """Initialize the data structures needed for the algorithm."""
 
     @abstractmethod
-    def _step(self) -> Any | Sequence[Cell]:
+    def _step(self) -> Any | Path:
         """Perform one step of the algorithm, yielding the curent state."""
     

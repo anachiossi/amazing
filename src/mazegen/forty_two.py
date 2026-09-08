@@ -9,9 +9,7 @@ joins stays joined.
 
 """
 
-from .maze import ALL_WALLS, Maze
-
-Cell = tuple[int, int]
+from .maze import ALL_WALLS, Cell, Maze
 
 # Cells are (col, row), the order the rest of mazegen is written in.
 # Read as a picture, the glyph is::
