@@ -1,13 +1,18 @@
 # a_maze_ing — default configuration
 # One KEY=VALUE pair per line. Lines starting with # are ignored.
 
-# Maze size, in cells
-WIDTH=20
-HEIGHT=15
+# Maze size, in cells. This default is the largest that still draws
+# inside a standard 80x24 terminal: 18 cells wide is 77 columns, and
+# 9 rows is 24 lines once the title and the messages are counted.
+# HEIGHT cannot go below 9 — the "42" pattern needs that many rows.
+# A bigger window takes a bigger maze; too small a one is refused with
+# a message rather than drawn wrong.
+WIDTH=18
+HEIGHT=9
 
 # Entry and exit, written as x,y — that is column,row
 ENTRY=0,0
-EXIT=19,14
+EXIT=17,8
 
 # Where the generated maze is written
 OUTPUT_FILE=maze.txt

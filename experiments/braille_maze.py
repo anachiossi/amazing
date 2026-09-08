@@ -30,8 +30,8 @@ two gives half-blocks, which halve the height and keep solid lines.
 import sys
 
 import rainbow
-from app.render.terminal import horizontal, vertical
-from mazegen import Maze, MazeGenerationConfig, MazeGenerator
+from app.render.terminal import maze_wall_above, maze_wall_left
+from mazegen import Maze, MazeConfig, MazeGenerator
 
 # Which bit each dot of a Braille character owns, by column and row.
 DOTS: dict[tuple[int, int], int] = {
@@ -50,10 +50,10 @@ def bitmap(maze: Maze) -> list[list[bool]]:
     grid = [[False] * cols for _ in range(rows)]
     for row in range(height + 1):
         for col in range(width + 1):
-            if col < width and horizontal(maze, col, row):
+            if col < width and maze_wall_above(maze, col, row):
                 for step in range(STEP + 1):
                     grid[STEP * row][STEP * col + step] = True
-            if row < height and vertical(maze, col, row):
+            if row < height and maze_wall_left(maze, col, row):
                 for step in range(STEP + 1):
                     grid[STEP * row + step][STEP * col] = True
     # A cell nothing can reach is one of the 42's, which is how the
@@ -62,7 +62,7 @@ def bitmap(maze: Maze) -> list[list[bool]]:
     # same as one just carved.
     for row in range(height):
         for col in range(width):
-            if maze.no_access(col, row):
+            if maze.wall_count(col, row) == 4:
                 for down in range(1, STEP):
                     for across in range(1, STEP):
                         grid[STEP * row + down][STEP * col + across] = True
@@ -89,7 +89,7 @@ def packed(grid: list[list[bool]], ink: str = "chambray") -> list[str]:
 def main(argv: list[str]) -> int:
     """Draw one maze, at whatever size was asked for."""
     width, height = (int(argv[0]), int(argv[1])) if len(argv) > 1 else (20, 15)
-    maze = MazeGenerator.from_config(MazeGenerationConfig(
+    maze = MazeGenerator.from_config(MazeConfig(
         width, height, (0, 0), (width - 1, height - 1),
         perfect=False, seed=7)).generate()
     grid = bitmap(maze)

@@ -137,7 +137,7 @@ class TestConstruction(MazeTest):
     def test_every_cell_starts_closed(self) -> None:
         maze = Maze(4, 3)
         for col, row in self.cells(maze):
-            self.assertTrue(maze.no_access(col, row))
+            self.assertEqual(maze.wall_count(col, row), 4)
 
     def test_get_dim(self) -> None:
         self.assertEqual(Maze(20, 15).get_dim(), (20, 15))
@@ -145,7 +145,7 @@ class TestConstruction(MazeTest):
     def test_smallest_maze(self) -> None:
         maze = Maze(1, 1)
         self.assertEqual(maze.get_dim(), (1, 1))
-        self.assertTrue(maze.no_access(0, 0))
+        self.assertEqual(maze.wall_count(0, 0), 4)
 
     def test_a_maze_needs_a_cell(self) -> None:
         for width, height in ((0, 5), (5, 0), (-1, 5), (0, 0)):
@@ -279,10 +279,6 @@ class TestBounds(MazeTest):
         with self.assertRaises(IndexError):
             self.maze.get_wall(3, 0, Direction.N)
 
-    def test_no_access(self) -> None:
-        with self.assertRaises(IndexError):
-            self.maze.no_access(0, 2)
-
     def test_build_wall(self) -> None:
         with self.assertRaises(IndexError):
             self.maze.build_wall(9, 9, Direction.N)
@@ -348,30 +344,6 @@ class TestGetWall(MazeTest):
         self.assertIsInstance(Maze(3, 3).get_wall(1, 1, Direction.N), bool)
 
 
-class TestNoAccess(MazeTest):
-    """A cell closed by all four walls."""
-
-    def test_true_when_every_wall_stands(self) -> None:
-        self.assertTrue(Maze(3, 3).no_access(1, 1))
-
-    def test_false_as_soon_as_one_wall_is_gone(self) -> None:
-        maze = Maze(3, 3)
-        maze.destroy_wall(1, 1, Direction.N)
-        self.assertFalse(maze.no_access(1, 1))
-
-    def test_false_on_an_open_cell(self) -> None:
-        self.assertFalse(self.open_maze(3, 3).no_access(1, 1))
-
-    def test_agrees_with_the_four_walls(self) -> None:
-        maze = Maze(4, 4)
-        maze.destroy_wall(2, 2, Direction.N)
-        for col, row in self.cells(maze):
-            self.assertEqual(
-                maze.no_access(col, row),
-                all(maze.get_wall(col, row, side) for side in SIDES),
-            )
-
-
 class TestBuildWall(MazeTest):
     """Building keeps both sides of a wall in step."""
 
@@ -400,7 +372,7 @@ class TestBuildWall(MazeTest):
     def test_several_sides_at_once(self) -> None:
         maze = self.open_maze(3, 3)
         maze.build_wall(1, 1, ALL_WALLS)
-        self.assertTrue(maze.no_access(1, 1))
+        self.assertEqual(maze.wall_count(1, 1), 4)
         self.assertTrue(maze.get_wall(1, 0, Direction.S))
         self.assertTrue(maze.get_wall(2, 1, Direction.W))
         self.assertTrue(maze.get_wall(1, 2, Direction.N))
@@ -493,8 +465,8 @@ class TestDestroyWall(MazeTest):
         maze = Maze(3, 3)
         maze.destroy_wall(1, 1, Direction.W)
         maze.build_wall(1, 1, Direction.W)
-        self.assertTrue(maze.no_access(1, 1))
-        self.assertTrue(maze.no_access(0, 1))
+        self.assertEqual(maze.wall_count(1, 1), 4)
+        self.assertEqual(maze.wall_count(0, 1), 4)
 
     def test_the_maze_stays_coherent(self) -> None:
         maze = Maze(4, 4)
@@ -671,7 +643,7 @@ class TestAcross(MazeTest):
     def test_it_may_leave_the_grid(self) -> None:
         maze = Maze(3, 3)
         self.assertEqual(maze.across(0, 0, Direction.W), (-1, 0))
-        self.assertNotIn(maze.across(0, 0, Direction.W), maze)
+        self.assertFalse(maze.across(0, 0, Direction.W) in maze)
 
 
 class TestClosedWalls(MazeTest):
@@ -732,13 +704,16 @@ class TestWallCount(MazeTest):
             with self.subTest(side=side.name):
                 self.assertEqual(maze.wall_count(1, 1), 4 - gone)
 
-    def test_no_access_is_the_four_wall_case(self) -> None:
-        maze = Maze(3, 3)
-        maze.destroy_wall(1, 1, Direction.E)
+    def test_four_means_every_wall_stands(self) -> None:
+        """The count and the four walls themselves must agree."""
+        maze = Maze(4, 4)
+        maze.destroy_wall(2, 2, Direction.N)
         for col, row in self.cells(maze):
             with self.subTest(cell=(col, row)):
-                self.assertEqual(maze.no_access(col, row),
-                                 maze.wall_count(col, row) == 4)
+                self.assertEqual(
+                    maze.wall_count(col, row) == 4,
+                    all(maze.get_wall(col, row, side) for side in SIDES),
+                )
 
 
 class TestRandomize(MazeTest):
@@ -769,7 +744,7 @@ class TestRandomize(MazeTest):
     def test_a_probability_of_one_closes_every_cell(self) -> None:
         maze = self.randomized(4, 3, 1.0)
         for col, row in self.cells(maze):
-            self.assertTrue(maze.no_access(col, row))
+            self.assertEqual(maze.wall_count(col, row), 4)
 
     def test_a_probability_of_zero_opens_every_internal_wall(self) -> None:
         maze = self.randomized(4, 3, 0.0)
@@ -796,7 +771,7 @@ class TestRandomize(MazeTest):
     def test_a_1x1_maze_has_no_internal_wall(self) -> None:
         maze = Maze(1, 1)
         maze.randomize()
-        self.assertTrue(maze.no_access(0, 0))
+        self.assertEqual(maze.wall_count(0, 0), 4)
 
     def test_a_probability_outside_zero_and_one_is_refused(self) -> None:
         for probability in (-0.1, 1.1, 2.0):
@@ -844,7 +819,7 @@ class TestRandomCarving(MazeTest):
     def test_something_was_actually_carved(self) -> None:
         """Guard against a test that would pass on an untouched maze."""
         maze = self.carved()
-        self.assertTrue(any(not maze.no_access(col, row)
+        self.assertTrue(any(maze.wall_count(col, row) != 4
                             for col, row in self.cells(maze)))
 
 

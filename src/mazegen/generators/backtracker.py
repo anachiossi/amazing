@@ -3,8 +3,8 @@
 import random
 from collections.abc import Iterator
 
-from ..generator import Cell, MazeGenerator
-from ..maze import Maze
+from ..generator import MazeGenerator
+from ..maze import Cell, Maze
 
 
 class Backtracker(MazeGenerator):

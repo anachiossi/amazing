@@ -9,8 +9,8 @@ import os
 import tempfile
 import unittest
 
-from app.config import MazeConfig, MazeConfigError
-from mazegen import MazeGenerationConfig
+from app.config import MazeConfigError, read_config
+from mazegen import MazeConfig
 
 VALID = """\
 # the default configuration, with a comment and a blank line
@@ -38,8 +38,12 @@ class MazeConfigTest(unittest.TestCase):
         return handle.name
 
     def load(self, text: str) -> MazeConfig:
-        """Read *text* as a configuration file."""
-        return MazeConfig(self.write(text))
+        """Read *text* as a configuration file, keeping the settings."""
+        return read_config(self.write(text))[0]
+
+    def output_of(self, text: str) -> str:
+        """Read *text* as a configuration file, keeping OUTPUT_FILE."""
+        return read_config(self.write(text))[1]
 
     def assert_rejected(self, text: str) -> str:
         """Assert *text* is refused, and return the message."""
@@ -55,18 +59,18 @@ class TestValidConfig(MazeConfigTest):
         config = self.load(VALID)
         self.assertEqual(config.width, 20)
         self.assertEqual(config.height, 15)
-        self.assertEqual(config.entry, (0, 0))
-        self.assertEqual(config.output_file, "maze.txt")
-        self.assertIs(config.is_perfect, True)
+        self.assertEqual(config.entry_cell, (0, 0))
+        self.assertEqual(self.output_of(VALID), "maze.txt")
+        self.assertIs(config.perfect, True)
 
     def test_exit_keeps_the_column_first(self) -> None:
         """19,14 stays (19, 14): 19 is the column, 14 the row."""
-        self.assertEqual(self.load(VALID).exit, (19, 14))
+        self.assertEqual(self.load(VALID).exit_cell, (19, 14))
 
     def test_numbers_are_not_strings(self) -> None:
         config = self.load(VALID)
         self.assertIsInstance(config.width, int)
-        self.assertIsInstance(config.is_perfect, bool)
+        self.assertIsInstance(config.perfect, bool)
 
     def test_keys_are_case_insensitive(self) -> None:
         self.assertEqual(self.load(VALID.lower()).width, 20)
@@ -77,11 +81,11 @@ class TestValidConfig(MazeConfigTest):
 
     def test_value_may_contain_an_equals_sign(self) -> None:
         text = VALID.replace("maze.txt", "out=put.txt")
-        self.assertEqual(self.load(text).output_file, "out=put.txt")
+        self.assertEqual(self.output_of(text), "out=put.txt")
 
     def test_perfect_accepts_false(self) -> None:
         text = VALID.replace("PERFECT=True", "PERFECT=False")
-        self.assertIs(self.load(text).is_perfect, False)
+        self.assertIs(self.load(text).perfect, False)
 
 
 class TestOptionalKeys(MazeConfigTest):
@@ -130,7 +134,7 @@ class TestMalformedFile(MazeConfigTest):
 
     def test_missing_file(self) -> None:
         with self.assertRaises(MazeConfigError):
-            MazeConfig("no_such_file_here.txt")
+            read_config("no_such_file_here.txt")
 
     def test_line_without_equals(self) -> None:
         message = self.assert_rejected(VALID + "GARBAGE\n")
@@ -163,7 +167,7 @@ class TestBadValues(MazeConfigTest):
 
 
 class TestSizeLimits(MazeConfigTest):
-    """WIDTH and HEIGHT are bounded by keys_limits."""
+    """WIDTH and HEIGHT are bounded by MIN_SIZE and MAX_SIZE."""
 
     def test_width_below_minimum(self) -> None:
         self.assert_rejected(VALID.replace("WIDTH=20", "WIDTH=0"))
@@ -202,29 +206,33 @@ class TestEntryAndExit(MazeConfigTest):
         self.assertIn("EXIT", self.assert_rejected(text))
 
 
-class TestToGenerationConfig(MazeConfigTest):
-    """The file config becomes mazegen's settings object."""
+class TestSettingsObject(MazeConfigTest):
+    """What the file is read into is mazegen's settings object itself."""
 
-    def test_it_maps_every_generation_field(self) -> None:
-        config = self.load(VALID + "SEED=7\nGEN_ALGORITHM=kruskal\n")
-        generation = config.to_generation_config()
-        self.assertIsInstance(generation, MazeGenerationConfig)
-        self.assertEqual(generation.width, 20)
-        self.assertEqual(generation.height, 15)
-        self.assertEqual(generation.entry_cell, (0, 0))
-        self.assertEqual(generation.exit_cell, (19, 14))
-        self.assertTrue(generation.perfect)
-        self.assertEqual(generation.seed, 7)
-        self.assertEqual(generation.algorithm, "kruskal")
+    def test_it_maps_every_field(self) -> None:
+        config = self.load(VALID + "SEED=7\nGEN_ALGORITHM=kruskal\n"
+                                   "SOLVE_ALGORITHM=bfs\n")
+        self.assertIsInstance(config, MazeConfig)
+        self.assertEqual(config.width, 20)
+        self.assertEqual(config.height, 15)
+        self.assertEqual(config.entry_cell, (0, 0))
+        self.assertEqual(config.exit_cell, (19, 14))
+        self.assertTrue(config.perfect)
+        self.assertEqual(config.seed, 7)
+        self.assertEqual(config.gen_algorithm, "kruskal")
+        self.assertEqual(config.solve_algorithm, "bfs")
 
     def test_absent_optional_keys_stay_none(self) -> None:
-        generation = self.load(VALID).to_generation_config()
-        self.assertIsNone(generation.seed)
-        self.assertIsNone(generation.algorithm)
+        config = self.load(VALID)
+        self.assertIsNone(config.seed)
+        self.assertIsNone(config.gen_algorithm)
+        self.assertIsNone(config.solve_algorithm)
 
-    def test_output_file_is_not_copied(self) -> None:
-        generation = self.load(VALID).to_generation_config()
-        self.assertFalse(hasattr(generation, "output_file"))
+    def test_output_file_is_not_in_the_settings(self) -> None:
+        """OUTPUT_FILE comes back beside the settings, never inside."""
+        config, output_file = read_config(self.write(VALID))
+        self.assertFalse(hasattr(config, "output_file"))
+        self.assertEqual(output_file, "maze.txt")
 
 
 if __name__ == "__main__":

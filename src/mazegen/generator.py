@@ -11,13 +11,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
 from . import forty_two
-from .generation_config import MazeGenerationConfig
-from .maze import Direction, Maze
-
-Cell = tuple[int, int]
-# A passage between two cells, held as the pair it joins so that it
-# reads the same from either side.
-Edge = frozenset[Cell]
+from .config import MazeConfig
+from .maze import Cell, Cells, Direction, Edge, Maze
 
 
 class MazeGenerator(ABC):
@@ -68,7 +63,7 @@ class MazeGenerator(ABC):
     # This set contains the cells that belong to the 42 pattern and
     # that must not be modified by the generation algorithm. The walls
     # along side these cells must always be up.
-    frozen: frozenset[Cell] = frozenset()
+    frozen: Cells = frozenset()
 
     # The maze being built. This one we just declare as it doesn't
     # exist yet. It is created during the call to carve().
@@ -77,7 +72,7 @@ class MazeGenerator(ABC):
     # -----------------------------------------------------------------
     # Constructors and class lifecycle
 
-    def __init__(self, config: MazeGenerationConfig) -> None:
+    def __init__(self, config: MazeConfig) -> None:
         self.config = config
 
     def __init_subclass__(cls) -> None:
@@ -93,19 +88,19 @@ class MazeGenerator(ABC):
             MazeGenerator.algorithms[cls.name] = cls
 
     @classmethod
-    def from_config(cls, config: MazeGenerationConfig) -> "MazeGenerator":
+    def from_config(cls, config: MazeConfig) -> "MazeGenerator":
         """Factory that builds a specific MazeGeneration.
 
         If algorithm is None then the default generator is built. This
         is decided by the value of the `default` class attribute.
         """
-        chosen = (config.algorithm if config.algorithm is not None
+        chosen = (config.gen_algorithm if config.gen_algorithm is not None
                   else cls.default)
         chosen = chosen.strip().lower()
         if chosen not in cls.algorithms:
             known = ", ".join(sorted(cls.algorithms)) or "none registered"
             raise ValueError(
-                f"no generation algorithm called {config.algorithm!r}; "
+                f"no generation algorithm called {config.gen_algorithm!r}; "
                 f"there is {known}"
             )
         return cls.algorithms[chosen](config)
@@ -254,8 +249,7 @@ class MazeGenerator(ABC):
                 if self.config.exit_cell not in self.maze.region_of(
                     entry_col, entry_row, banned=edge)]
 
-    def _closed_across(self,
-                       near: frozenset[Cell]
+    def _closed_across(self, near: Cells
                        ) -> list[tuple[Cell, Direction]]:
         """Walls standing between the cells in ``near`` and the rest."""
         return [((col, row), side)

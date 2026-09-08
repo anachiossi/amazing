@@ -2,14 +2,14 @@
 
 import unittest
 
-from mazegen import Direction, Maze, MazeGenerationConfig, MazeGenerator
+from mazegen import Direction, Maze, MazeConfig, MazeGenerator
 from mazegen.generators.kruskal import Kruskal, _Forest
 
 
 def build(width: int = 12, height: int = 8, **settings: object) -> Kruskal:
     """A Kruskal generator of that size, seeded so a failure repeats."""
     settings.setdefault("seed", 42)
-    config = MazeGenerationConfig(
+    config = MazeConfig(
         width, height, (0, 0), (width - 1, height - 1),
         **settings,  # type: ignore[arg-type]
     )
@@ -62,19 +62,19 @@ class RegisteredTest(unittest.TestCase):
 
     def test_from_config_builds_one(self) -> None:
         generator = MazeGenerator.from_config(
-            MazeGenerationConfig(5, 5, (0, 0), (4, 4), algorithm="kruskal"))
+            MazeConfig(5, 5, (0, 0), (4, 4), gen_algorithm="kruskal"))
         self.assertIsInstance(generator, Kruskal)
 
     def test_the_name_is_case_and_space_insensitive(self) -> None:
         generator = MazeGenerator.from_config(
-            MazeGenerationConfig(5, 5, (0, 0), (4, 4), algorithm="  KRUSKAL "))
+            MazeConfig(5, 5, (0, 0), (4, 4), gen_algorithm="  KRUSKAL "))
         self.assertIsInstance(generator, Kruskal)
 
     def test_an_unknown_name_says_which_there_are(self) -> None:
         with self.assertRaises(ValueError) as caught:
             MazeGenerator.from_config(
-                MazeGenerationConfig(5, 5, (0, 0), (4, 4),
-                                     algorithm="dijkstra"))
+                MazeConfig(5, 5, (0, 0), (4, 4),
+                           gen_algorithm="dijkstra"))
         self.assertIn("kruskal", str(caught.exception))
 
 
