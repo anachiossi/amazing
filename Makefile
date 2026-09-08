@@ -33,7 +33,7 @@ YELLOW  := $(ESC)[33m
 RED     := $(ESC)[31m
 RESET   := $(ESC)[0m
 
-.PHONY: install run debug clean fclean lint test help
+.PHONY: install run debug build clean fclean lint test help
 
 # First target of the file, so a bare "make" lands here.
 help:
@@ -50,7 +50,8 @@ help:
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'install' 'create $(VENV) and install the dependencies' \
 	'run'     'draw the maze $(CONFIG) asks for' \
-	'debug'   'run it under pdb'
+	'debug'   'run it under pdb' \
+	'build'   'build the mazegen wheel at the repository root'
 	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Test'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'test' 'run the unit tests' \
@@ -105,6 +106,15 @@ endif
 debug: $(STAMP)
 	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)
 
+# The reusable module, as the subject asks for it: a pip-installable
+# file named mazegen-* sitting at the root of the repository. `python
+# -m build` writes into dist/; the copy is what the defence installs.
+build: $(STAMP)
+	$(VPYTHON) -m pip install --quiet build
+	$(VPYTHON) -m build
+	cp dist/mazegen-*-py3-none-any.whl .
+	cp dist/mazegen-*.tar.gz .
+
 test: $(STAMP)
 	$(VPYTHON) -m unittest discover -s tests -t .
 
@@ -117,6 +127,7 @@ lint: $(STAMP)
 
 clean:
 	rm -rf .mypy_cache .pytest_cache build dist *.egg-info
+	rm -f mazegen-*.whl mazegen-*.tar.gz
 	find . -type d -name __pycache__ -not -path "./mlx/*" \
 	      -exec rm -rf {} + 2>/dev/null || true
 

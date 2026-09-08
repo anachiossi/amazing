@@ -1,10 +1,13 @@
 """Tests for the captions the program writes under a maze."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from mazegen import Direction, Maze, MazeConfig, MazeGenerator, MazeSolver
 
-from a_maze_ing import describes, message_for, moved_entry, next_named
+from a_maze_ing import (describes, message_for, moved_entry, next_named,
+                        write_out)
 from app.render.terminal import Drawing
 
 
@@ -107,3 +110,35 @@ class MovedEntryTest(unittest.TestCase):
     def test_a_key_that_is_not_an_arrow_moves_nothing(self) -> None:
         maze = Maze(3, 3, entry=(1, 1), exit=(2, 2))
         self.assertIsNone(moved_entry(maze, "r"))
+
+
+class WriteOutTest(unittest.TestCase):
+    """The program writes the maze the subject names OUTPUT_FILE."""
+
+    def test_the_file_is_the_subject_format(self) -> None:
+        settings = MazeConfig(20, 15, (0, 0), (19, 14),
+                              perfect=True, seed=1)
+        maze = MazeGenerator.from_config(settings).generate()
+        route = MazeSolver.from_config(settings).solve(maze)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "maze.txt"
+            write_out(maze, route, str(path))
+            text = path.read_text(encoding="utf-8")
+        self.assertEqual(text, maze.as_text(route))
+        lines = text.split("\n")
+        self.assertEqual(lines[15], "")
+        self.assertEqual(lines[16], "0,0")
+        self.assertEqual(lines[17], "19,14")
+        self.assertTrue(set(lines[18]) <= set("NESW"))
+        self.assertTrue(text.endswith("\n"))
+
+    def test_a_later_write_replaces_the_file(self) -> None:
+        settings = MazeConfig(20, 15, (0, 0), (19, 14), seed=1)
+        maze = MazeGenerator.from_config(settings).generate()
+        route = MazeSolver.from_config(settings).solve(maze)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "maze.txt"
+            write_out(maze, route, str(path))
+            first = path.read_text(encoding="utf-8")
+            write_out(maze, route, str(path))
+            self.assertEqual(path.read_text(encoding="utf-8"), first)

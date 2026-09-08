@@ -38,24 +38,21 @@ TODO: the reasoning behind the choice, and what was rejected.
 
 ## Reusable module
 
-TODO: what part of the code is reusable and how. Must cover:
-
-- how to instantiate and use the generator, with a basic example
-- how to pass custom parameters (size, seed)
-- how to reach the generated structure and at least one solution
+```bash
+make build
+pip install mazegen-1.0.0-py3-none-any.whl
+```
 
 ```python
 from mazegen import MazeConfig, MazeGenerator, MazeSolver
 
-# One settings object serves both: the generator and the solver are
-# asked about the same maze, and each reads the algorithm meant for it.
 config = MazeConfig(20, 15, (0, 0), (19, 14), seed=7,
                     gen_algorithm="kruskal", solve_algorithm="bfs")
-
 maze = MazeGenerator.from_config(config).generate()
 path = MazeSolver.from_config(config).solve(maze)
 
-print(maze.get_dim(), len(path))       # (20, 15) and the route's length
+print(maze.get_dim(), maze.get_entry(), maze.get_exit(), len(path))
+maze.save("maze.txt", path)
 ```
 
 ## Advanced features
