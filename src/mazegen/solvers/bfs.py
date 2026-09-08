@@ -17,7 +17,7 @@ class BFS(MazeSolver):
         # Keep track of visited cells
         self.visited: set[Cell] = {self.config.entry_cell}
         # Key: cell, Value: its parent, None = entry cell
-        self.parent: dict[Cell, Cell | None] = {self.config.entry_cell: None}
+        self.parent: dict[Cell, None | Cell] = {self.config.entry_cell: None}
         self.visited_animation: list[Cell] = [self.config.entry_cell]
         self._path = []
 
@@ -30,13 +30,12 @@ class BFS(MazeSolver):
         self.visited.add(current_cell)
         self.visited_animation.append(current_cell)
         if current_cell == self.config.exit_cell:
-            self._path.append(self.config.exit_cell)
-            cell = self.config.exit_cell
-            parent = self.parent[cell]
-            while parent is not None:
-                cell = parent
+            # Walk the parents back from the exit. The entry is the
+            # one cell with no parent, so None is what ends the walk.
+            cell: Cell | None = self.config.exit_cell
+            while cell is not None:
                 self._path.append(cell)
-                parent = self.parent[cell]
+                cell = self.parent[cell]
             self._path.reverse()
             return 1
         else:
