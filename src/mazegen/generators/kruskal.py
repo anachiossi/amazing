@@ -48,13 +48,13 @@ class _Forest:
         left, right = self._root(one), self._root(other)
         if left == right:
             return False
-        
+
         # The smaller group hangs off the larger
         if self._size[left] < self._size[right]:
             left, right = right, left
         self._parent[right] = left
         self._size[left] += self._size[right]
-        
+
         return True
 
 
@@ -99,7 +99,7 @@ class Kruskal(MazeGenerator):
             # possible.
             if joined.join(cell, cell_across):
                 self.maze.destroy_wall(col, row, side)
-                
+
                 # everytime we break a wall we yield the new updated
                 # maze. This is used for animation purposes in the
                 # renderer
