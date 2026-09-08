@@ -50,8 +50,7 @@ colour is perfectly invisible, so everything drawn here is opaque.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from time import monotonic
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Literal, Sequence
 
 import rainbow
@@ -104,18 +103,6 @@ DESKTOP = (120, 160)
 
 # The event MiniLibX sends when the window's close button is pressed.
 DESTROY_NOTIFY = 33
-
-# X events and masks for the keys. MiniLibX's mlx_key_hook listens
-# for KeyRelease; KeyPress auto-repeats while the key is held. Both
-# are hooked and folded into one tap — see ``Taps``.
-KEY_PRESS = 2
-KEY_PRESS_MASK = 1
-KEY_RELEASE = 3
-KEY_RELEASE_MASK = 2
-
-# If MiniLibX never sends KeyRelease, the key would stay "down" and
-# eat every later tap. After this long, a new press is a new tap.
-KEY_STALE = 2.0
 
 # The keysym of Escape. Arrow keys are the other non-printable ones
 # this window answers; every other key is a printable one, and those
@@ -171,51 +158,6 @@ def key_letter(keysym: int) -> str:
     if 32 <= keysym <= 126:
         return chr(keysym).lower()
     return ""
-
-
-@dataclass
-class Taps:
-    """One command per physical tap, whatever MiniLibX delivers.
-
-    MiniLibX 2.2 is awkward with keys, and that is a library problem
-    rather than a maze problem:
-
-    * ``mlx_key_hook`` fires on KeyRelease, not KeyPress.
-    * KeyPress auto-repeats while the key is held, so a toggle that
-      listened to every press would flip on and off for one tap.
-    * The C callback is called with three arguments (keysym, param,
-      the raw event); the Python wrapper declares two.
-    * KeyRelease is not always delivered.
-
-    A tap is the **press**. The matching release is never a second
-    command, even if you hold the key for a second — a time window
-    would treat that release as a new tap and undo the first. A
-    release with no press still counts: that is mlx_key_hook alone.
-    A press whose release was lost counts again after ``KEY_STALE``.
-    """
-
-    stale: float = KEY_STALE
-    _down: dict[str, float] = field(default_factory=dict)
-
-    def press(self, letter: str, now: float | None = None) -> bool:
-        """True if this press is a new tap, not an auto-repeat."""
-        if not letter:
-            return False
-        moment = monotonic() if now is None else now
-        last = self._down.get(letter)
-        if last is not None and moment - last < self.stale:
-            return False
-        self._down[letter] = moment
-        return True
-
-    def release(self, letter: str) -> bool:
-        """True if the press never arrived and this release is the tap."""
-        if not letter:
-            return False
-        if letter in self._down:
-            del self._down[letter]
-            return False
-        return True
 
 
 @dataclass(frozen=True)
@@ -655,63 +597,6 @@ class MazeWindow:
         self.canvas = Canvas(self.mlx, self.mlx_ptr,
                              window_width, window_height)
 
-    def _x_window_id(self) -> int:
-        """The X id of this window, read off MiniLibX's xcb handle.
-
-        MiniLibX does not hand the id out. The layout of mlx_win_t /
-        mlx__xcb_win_t is the one in mlx 2.2; if it ever moves, focus
-        is skipped rather than the window refused.
-        """
-        from ctypes import Structure, c_int, c_uint32, c_void_p
-
-        class mlx_win_t(Structure):
-            _fields_ = [("next", c_void_p), ("active", c_int),
-                        ("mlx", c_void_p), ("backend_win", c_void_p),
-                        ("gpu_win", c_void_p)]
-
-        class mlx_xcb_win_t(Structure):
-            _fields_ = [("xcb", c_void_p), ("win_id", c_uint32)]
-
-        win = mlx_win_t.from_address(int(self.window))
-        if not win.backend_win:
-            return 0
-        return int(mlx_xcb_win_t.from_address(win.backend_win).win_id)
-
-    def _take_focus(self) -> None:
-        """Make this window the one that receives keys.
-
-        MiniLibX never asks for focus. Under i3 the terminal that
-        launched the program keeps it, so P and the rest never arrive.
-        i3-msg is the reliable ask on i3; XSetInputFocus is the
-        fallback on a WM that honours it.
-        """
-        xid = self._x_window_id()
-        if not xid:
-            return
-        try:
-            from subprocess import DEVNULL, run
-            run(["i3-msg", f"[id={xid}] focus"],
-                stdout=DEVNULL, stderr=DEVNULL, timeout=1, check=False)
-        except (OSError, TimeoutError):
-            pass
-        try:
-            from ctypes import CDLL, c_char_p, c_int, c_ulong, c_void_p
-            x11 = CDLL("libX11.so.6")
-            x11.XOpenDisplay.restype = c_void_p
-            x11.XOpenDisplay.argtypes = [c_char_p]
-            x11.XSetInputFocus.argtypes = [c_void_p, c_ulong, c_int, c_ulong]
-            x11.XFlush.argtypes = [c_void_p]
-            x11.XCloseDisplay.argtypes = [c_void_p]
-            display = x11.XOpenDisplay(None)
-            if not display:
-                return
-            # RevertToParent = 2, CurrentTime = 0
-            x11.XSetInputFocus(display, xid, 2, 0)
-            x11.XFlush(display)
-            x11.XCloseDisplay(display)
-        except OSError:
-            return
-
     def run(self) -> None:
         """Open the window, and hand the program over to MLX."""
         self.mlx.mlx_expose_hook(self.window, self.draw, 0)
@@ -722,7 +607,6 @@ class MazeWindow:
         # whether its first expose event reaches the hook above is the
         # server's business rather than something to rely on.
         self.draw()
-        self._take_focus()
         # Extra KeyPress events while a key is held. Display-wide, so
         # it is turned back on when the loop ends.
         self.mlx.mlx_do_key_autorepeatoff(self.mlx_ptr)
@@ -795,7 +679,7 @@ def show(scene: Scene, skin: Skin = STANDARD_SKIN,
     MazeWindow(scene, skin, on_maze).run()
 
 
-__all__ = ["Canvas", "Layout", "MazeWindow", "Scene", "Skin", "Taps",
+__all__ = ["Canvas", "Layout", "MazeWindow", "Scene", "Skin",
            "STANDARD_SKIN", "TooSmall", "ascii_only", "colour", "draw",
            "key_letter", "show", "write_line", "KEYS", "WALL_COLOURS",
            "FORTY_TWO_COLOURS"]
