@@ -27,7 +27,8 @@ from app.render import gui
 from app.render.terminal import (WALL_COLOURS, Drawing, TooSmallTerminal,
                                  apply_wall_colour, colour_menu, read_key,
                                  redraw, show)
-from mazegen import Direction, Maze, MazeConfig, MazeGenerator, MazeSolver, Path
+from mazegen import (Direction, Maze, MazeConfig, MazeGenerator,
+                     MazeSolver, Path)
 
 ACTION_BAR = "R  redraw   P  path   C  colour   Q  quit"
 

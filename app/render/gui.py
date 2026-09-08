@@ -312,7 +312,9 @@ def write_line(canvas: Canvas, text: str, top: int, ink: Colour) -> None:
     glyph_w = FONT_WIDTH * FONT_SCALE
     left = max(0, (canvas.width - len(line) * glyph_w) // 2)
     for index, letter in enumerate(line):
-        rows = _FONT_5X7.get(letter) or _FONT_5X7.get(letter.swapcase()) or _FONT_5X7["?"]
+        rows = (_FONT_5X7.get(letter)
+                or _FONT_5X7.get(letter.swapcase())
+                or _FONT_5X7["?"])
         ox = left + index * glyph_w
         for row, bits in enumerate(rows):
             for col in range(FONT_WIDTH):

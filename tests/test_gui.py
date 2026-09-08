@@ -17,8 +17,8 @@ from mazegen import Direction, Maze
 from app.render.gui import (DOWN, ESCAPE, FOOT, HEAD, KEYS, LEFT, LINE, MARGIN,
                             MAX_CELL, MIN_CELL, RIGHT, STANDARD_SKIN, TAIL,
                             TAIL_LINES, UP, Canvas, Layout, Scene, TooSmall,
-                            ascii_only, colour, draw, key_letter, path_prefixes,
-                            write_line)
+                            ascii_only, colour, draw, key_letter,
+                            path_prefixes, write_line)
 
 # A screen big enough that nothing has to be given up for it.
 ROOMY = (3000, 2000)
