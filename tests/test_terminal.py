@@ -43,6 +43,7 @@ def drawn(maze: Maze, drawing: Drawing | None = None) -> str:
     """
     return plain(render(maze, drawing))
 
+
 FLUSH = Frame(head=0, tail=0, sides=0)
 WALL_SYMBOLS = (set(STANDARD_SKIN.wall.joints
                     + STANDARD_SKIN.border.joints) - {" "})
@@ -182,8 +183,8 @@ class BorderTest(TerminalTest):
             self.assertTrue(line.startswith("┃"))
             self.assertTrue(line.endswith("┃"))
 
-    def test_the_border_is_drawn_closed_whatever_the_maze_says(self
-                                                              ) -> None:
+    def test_the_border_is_drawn_closed_whatever_the_maze_says(
+            self) -> None:
         """The border is drawn first, and never asked about.
 
         The outside of a maze is walled by definition — the subject
@@ -366,7 +367,7 @@ class PathTest(TerminalTest):
         """The line runs through the cells and the openings between."""
         maze = self.straight_maze()
         lines = self.lines(maze, Drawing(paths=[[(col, 0)
-                                               for col in range(4)]]))
+                                                 for col in range(4)]]))
         char_row, first = self.middle(0, 0)
         _, last = self.middle(3, 0)
         drawn = lines[char_row][first:last + 1]
@@ -462,7 +463,7 @@ class FrameTest(TerminalTest):
         """The head carries the title, in the middle of the picture."""
         frame = Frame(head=2, tail=2, sides=2)
         lines = drawn(Maze(6, 3), Drawing(title="MAZE",
-                                           frame=frame)).split("\n")
+                                          frame=frame)).split("\n")
         line = next(line for line in lines if "MAZE" in line)
         left = line.index("MAZE")
         self.assertLessEqual(abs(left - (len(line) - left - 4)), 1)
@@ -471,7 +472,7 @@ class FrameTest(TerminalTest):
         """A message sits in the middle, like the title."""
         frame = Frame(head=1, tail=2, sides=2)
         lines = drawn(Maze(6, 3), Drawing(message=["ready"],
-                                           frame=frame)).split("\n")
+                                          frame=frame)).split("\n")
         line = next(line for line in lines if "ready" in line)
         left = line.index("ready")
         self.assertLessEqual(abs(left - (len(line) - left - 5)), 1)
@@ -494,7 +495,7 @@ class FrameTest(TerminalTest):
         frame = Frame(head=1, tail=3, sides=1)
         quiet = drawn(Maze(4, 3), Drawing(frame=frame)).split("\n")
         talking = drawn(Maze(4, 3), Drawing(message=["hello"],
-                                             frame=frame)).split("\n")
+                                            frame=frame)).split("\n")
         self.assertEqual(len(quiet), len(talking))
         self.assertEqual(quiet[:-3], talking[:-3])
 

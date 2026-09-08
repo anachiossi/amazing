@@ -22,9 +22,12 @@ from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
 from enum import IntFlag
 
-# The three names the whole program speaks in. A cell is where it is,
+# The names the whole program speaks in. A cell is where it is,
 # (col, row); a path is the cells walked through in order; and a maze
-# may be drawn with more than one path over it at once.
+# may be drawn with more than one path over it at once. An edge is the
+# pair of cells a passage joins, held as a set so that it reads the
+# same from either side; Cells is any group of them — a region, or the
+# cells set aside for the "42".
 #
 # They live here, beside the Maze they describe, because everything
 # else — the generator, the solver, both renderers — is written in
@@ -33,6 +36,8 @@ from enum import IntFlag
 Cell = tuple[int, int]
 Path = Sequence[Cell]
 Paths = Sequence[Path]
+Edge = frozenset[Cell]
+Cells = frozenset[Cell]
 
 
 class Direction(IntFlag):
@@ -155,7 +160,7 @@ class Maze:
             self.grid.append(column)
         self._entry: Cell | None = None
         self._exit: Cell | None = None
-        self._frozen: frozenset[Cell] = frozenset()
+        self._frozen: Cells = frozenset()
         self.set_entry(entry)
         self.set_exit(exit)
 
@@ -178,7 +183,7 @@ class Maze:
         """Set where the maze is left, or None to have no exit."""
         self._exit = self._checked_end(cell, "exit")
 
-    def get_frozen(self) -> frozenset[Cell]:
+    def get_frozen(self) -> Cells:
         """The cells nothing may open, empty if none were set aside.
 
         These are the fully closed cells the generator sealed before
@@ -434,7 +439,7 @@ class Maze:
                     if self.across(col, row, side) in self:
                         yield (col, row), side
 
-    def open_passages(self) -> set[frozenset[Cell]]:
+    def open_passages(self) -> set[Edge]:
         """Every open passage between two cells, each counted once."""
         return {frozenset(((col, row), self.across(col, row, side)))
                 for (col, row), side in self.internal_walls()
@@ -448,8 +453,8 @@ class Maze:
                 if self.wall_count(col, row) == 3]
 
     def region_of(self, col: int, row: int,
-                  banned: frozenset[Cell] | None = None
-                  ) -> frozenset[Cell]:
+                  banned: Edge | None = None
+                  ) -> Cells:
         """Every cell reachable from this one, walls taken into account.
 
         ``banned`` is one passage to pretend closed, so a choke point

@@ -9,7 +9,7 @@ joins stays joined.
 
 """
 
-from .maze import ALL_WALLS, Cell, Maze
+from .maze import ALL_WALLS, Cells, Maze
 
 # Cells are (col, row), the order the rest of mazegen is written in.
 # Read as a picture, the glyph is::
@@ -23,7 +23,7 @@ from .maze import ALL_WALLS, Cell, Maze
 #       ####
 #
 # Column 5 is the gap between the 4 and the 2, so it has no entry.
-PATTERN: frozenset[Cell] = frozenset({
+PATTERN: Cells = frozenset({
     (0, 3), (0, 4),
     (1, 2), (1, 3), (1, 4),
     (2, 1), (2, 2), (2, 4),
@@ -54,7 +54,7 @@ def fits(width: int, height: int) -> bool:
     return width >= MIN_WIDTH and height >= MIN_HEIGHT
 
 
-def cells(width: int, height: int) -> frozenset[Cell]:
+def cells(width: int, height: int) -> Cells:
     """Place the 42 in the middle of the maze.
 
     The gap between the two digits lands on the middle column, so the
@@ -74,7 +74,7 @@ def cells(width: int, height: int) -> frozenset[Cell]:
                      for col, row in PATTERN)
 
 
-def reserve(maze: Maze) -> frozenset[Cell]:
+def reserve(maze: Maze) -> Cells:
     """Close the 42's cells in ``maze``, and say which they are.
 
     Called before the maze is carved. A finished maze is a tree of

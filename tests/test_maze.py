@@ -643,7 +643,7 @@ class TestAcross(MazeTest):
     def test_it_may_leave_the_grid(self) -> None:
         maze = Maze(3, 3)
         self.assertEqual(maze.across(0, 0, Direction.W), (-1, 0))
-        self.assertNotIn(maze.across(0, 0, Direction.W), maze)
+        self.assertFalse(maze.across(0, 0, Direction.W) in maze)
 
 
 class TestClosedWalls(MazeTest):

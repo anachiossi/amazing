@@ -61,9 +61,6 @@ from typing import Iterable, Sequence
 import rainbow
 from mazegen import Cell, Direction, Maze, Path, Paths
 
-VisitedA = Path
-VisitedB = Path
-
 # What a cell on a path knows: the sides it links to, and the element
 # of the path that drew it.
 Link = tuple[int, "JoinedElement"]

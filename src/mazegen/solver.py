@@ -1,20 +1,14 @@
 """Shortest path between two cells."""
-import random
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
 from typing import Any
 
-from . import forty_two
 from .config import MazeConfig
-from .maze import Cell, Direction, Maze, Path
+from .maze import Cell, Maze, Path
 
-# A passage between two cells, held as the pair it joins so that it
-# reads the same from either side.
-Edge = frozenset[Cell]
 
 class MazeSolver(ABC):
-    
-    algorithms: dict[str, type["MazeSolver"]] = {}    
+
+    algorithms: dict[str, type["MazeSolver"]] = {}
     name: str = ""
     default: str = "bfs"
     maze: Maze
@@ -28,7 +22,7 @@ class MazeSolver(ABC):
 
     def __init_subclass__(cls) -> None:
         if cls.name:
-            MazeSolver.algorithms[cls.name] = cls        
+            MazeSolver.algorithms[cls.name] = cls
 
     @classmethod
     def from_config(cls, config: MazeConfig) -> "MazeSolver":
@@ -57,4 +51,3 @@ class MazeSolver(ABC):
     @abstractmethod
     def _step(self) -> Any | Path:
         """Perform one step of the algorithm, yielding the curent state."""
-    

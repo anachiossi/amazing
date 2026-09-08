@@ -32,9 +32,11 @@ class BFS(MazeSolver):
         if current_cell == self.config.exit_cell:
             self._path.append(self.config.exit_cell)
             cell = self.config.exit_cell
-            while self.parent[cell] is not None:
-                cell = self.parent[cell]
+            parent = self.parent[cell]
+            while parent is not None:
+                cell = parent
                 self._path.append(cell)
+                parent = self.parent[cell]
             self._path.reverse()
             return 1
         else:
