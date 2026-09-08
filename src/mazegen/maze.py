@@ -105,6 +105,15 @@ class Direction(IntFlag):
         """
         return _STEP[self]
 
+    def letter(self) -> str:
+        """Return the letter the output file names this step with.
+        Supports a single side only.
+
+        Tabulated rather than taken from the member's own name, so
+        that renaming one cannot change what lands in the file.
+        """
+        return _LETTER[self]
+
 
 _OPPOSITE: dict[Direction, Direction] = {
     Direction.N: Direction.S,
@@ -118,6 +127,19 @@ _STEP: dict[Direction, tuple[int, int]] = {
     Direction.E: (1, 0),
     Direction.S: (0, 1),
     Direction.W: (-1, 0),
+}
+
+_LETTER: dict[Direction, str] = {
+    Direction.N: "N",
+    Direction.E: "E",
+    Direction.S: "S",
+    Direction.W: "W",
+}
+
+# _STEP read backwards: which side a move goes through. Writing a
+# route out means naming that side for each pair of cells in it.
+_SIDE_OF: dict[tuple[int, int], Direction] = {
+    step: side for side, step in _STEP.items()
 }
 
 # To encode a cell with all walls we use the number 15, which is
@@ -451,6 +473,83 @@ class Maze:
                 for col in range(self.width)
                 for row in range(self.height)
                 if self.wall_count(col, row) == 3]
+
+    # -----------------------------------------------------------------
+    # Writing the maze out, in the format the subject imposes.
+    #
+    # The encoding is the grid's own — one hexadecimal digit a cell,
+    # and the digit is the value the cell already holds — so the maze
+    # writes itself rather than being handed to a writer that would
+    # have to reach in here to say the same thing. The route is passed
+    # in: a maze cannot walk itself, and it is the one part of the file
+    # that cannot be read off the walls.
+
+    def encode(self) -> str:
+        """The grid, one hexadecimal digit a cell, a row to a line.
+
+        The grid is held in columns, so a line is read across it.
+        Lowercase, as in the subject's example; either case is read.
+        """
+        return "\n".join("".join(f"{int(self.grid[col][row]):x}"
+                                 for col in range(self.width))
+                         for row in range(self.height))
+
+    def route_letters(self, route: Path) -> str:
+        """A route written as the subject writes it: one letter a step.
+
+        Each letter names the side that step goes through, so this is
+        also where a route is checked against the walls it claims to
+        cross: a step to a cell that is not next door, or through a
+        wall still standing, is refused. A route of one cell or none
+        has no steps and comes back empty.
+        """
+        letters = []
+        for before, after in zip(route, route[1:]):
+            step = (after[0] - before[0], after[1] - before[1])
+            side = _SIDE_OF.get(step)
+            if side is None:
+                raise ValueError(
+                    f"the route jumps from {before} to {after}, "
+                    f"which are not neighbouring cells")
+            if self.get_wall(before[0], before[1], side):
+                raise ValueError(
+                    f"the route leaves {before} to the {side.letter()}, "
+                    f"where a wall is still standing")
+            letters.append(side.letter())
+        return "".join(letters)
+
+    def as_text(self, route: Path) -> str:
+        """The whole output file, as one string.
+
+        The grid, an empty line, then the entry, the exit and the
+        route, each on a line of its own, every line newline-ended.
+        The ends are written ``x,y`` — column first, the way the
+        configuration file writes them.
+        """
+        entry, exit_cell = self._entry, self._exit
+        if entry is None or exit_cell is None:
+            raise ValueError(
+                "a maze written out needs both an entry and an exit")
+        if route and (route[0] != entry or route[-1] != exit_cell):
+            raise ValueError(
+                f"the route runs from {route[0]} to {route[-1]}, not from "
+                f"the entry {entry} to the exit {exit_cell}")
+        return (f"{self.encode()}\n\n"
+                f"{entry[0]},{entry[1]}\n"
+                f"{exit_cell[0]},{exit_cell[1]}\n"
+                f"{self.route_letters(route)}\n")
+
+    def save(self, filename: str, route: Path) -> None:
+        """Write the maze to that file, in the subject's format.
+
+        The text is built before the file is opened, so a route this
+        cannot describe leaves the last good file alone rather than
+        emptying it. Whatever the disk refuses comes back as
+        ``OSError``: only the caller knows what it was trying to do.
+        """
+        text = self.as_text(route)
+        with open(filename, "w", encoding="utf-8") as output:
+            output.write(text)
 
     def region_of(self, col: int, row: int,
                   banned: Edge | None = None
