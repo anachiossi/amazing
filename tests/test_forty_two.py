@@ -2,7 +2,7 @@
 
 import unittest
 
-from mazegen import (Maze, MazeGenerationConfig, MazeGenerator,
+from mazegen import (Maze, MazeConfig, MazeGenerator,
                      forty_two)
 
 
@@ -71,7 +71,7 @@ class ReserveTest(unittest.TestCase):
 
     def test_every_cell_of_the_glyph_is_closed(self) -> None:
         for col, row in self.chosen:
-            self.assertTrue(self.maze.no_access(col, row))
+            self.assertEqual(self.maze.wall_count(col, row), 4)
 
     def test_the_maze_remembers_which_cells_they_are(self) -> None:
         self.assertEqual(self.maze.get_frozen(), self.chosen)
@@ -99,7 +99,7 @@ class GeneratedTest(unittest.TestCase):
 
     def _generate(self, width: int, height: int, seed: int,
                   perfect: bool) -> Maze:
-        config = MazeGenerationConfig(
+        config = MazeConfig(
             width, height, (0, 0), (width - 1, height - 1),
             perfect=perfect, seed=seed)
         return MazeGenerator.from_config(config).generate()
@@ -114,7 +114,7 @@ class GeneratedTest(unittest.TestCase):
                         expected = forty_two.cells(width, height)
                         self.assertEqual(maze.get_frozen(), expected)
                         for col, row in expected:
-                            self.assertTrue(maze.no_access(col, row))
+                            self.assertEqual(maze.wall_count(col, row), 4)
 
     def test_everything_else_stays_reachable(self) -> None:
         """The only unreachable cells a maze may have are the glyph's.

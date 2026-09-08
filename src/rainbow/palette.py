@@ -349,5 +349,3 @@ def _hue(number: int) -> float:
     if max(red, green, blue) == min(red, green, blue):
         return 0.0
     return colorsys.rgb_to_hls(red / 255, green / 255, blue / 255)[0]
-
-

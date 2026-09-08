@@ -114,8 +114,8 @@ class FitTest(unittest.TestCase):
         with self.assertRaises(TooSmall):
             widest_that_fits(20, 15, (200, 35), FRAME)
 
-    def test_the_message_says_what_is_needed_and_what_there_is(self
-                                                              ) -> None:
+    def test_the_message_says_what_is_needed_and_what_there_is(
+            self) -> None:
         """The error is the one thing whoever called can act on."""
         with self.assertRaises(TooSmall) as raised:
             widest_that_fits(20, 15, (30, 10), FRAME)

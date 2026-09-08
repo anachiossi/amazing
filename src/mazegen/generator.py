@@ -1,4 +1,4 @@
-"""Core abstractions required to generate mazes. 
+"""Core abstractions required to generate mazes.
 
 MazeGenerator is an abstract class that implements the core structure
 that is shared across all maze generators. To implement a specific
@@ -11,13 +11,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
 from . import forty_two
-from .generation_config import MazeGenerationConfig
-from .maze import Direction, Maze
+from .config import MazeConfig
+from .maze import Cell, Cells, Direction, Edge, Maze
 
-Cell = tuple[int, int]
-# A passage between two cells, held as the pair it joins so that it
-# reads the same from either side.
-Edge = frozenset[Cell]
 
 class MazeGenerator(ABC):
     """Generates mazes. Public class of the package.
@@ -48,7 +44,7 @@ class MazeGenerator(ABC):
        The initial state of the grid the algorithm starts from. For
        some algorithms it will be no walls, for others it will be full
        walls.
-    
+
     - _run()
 
        The actual algorithm itself.
@@ -57,9 +53,9 @@ class MazeGenerator(ABC):
 
     # Every subclass that names itself is selectable by that name, so
     # adding an algorithm is writing a class and nothing else.
-    algorithms: dict[str, type["MazeGenerator"]] = {}    
+    algorithms: dict[str, type["MazeGenerator"]] = {}
     name: str = ""
-    
+
     # Kruskal's while it is the only one written; the backtracker takes
     # this back when it lands, being the one that animates best.
     default: str = "kruskal"
@@ -67,7 +63,7 @@ class MazeGenerator(ABC):
     # This set contains the cells that belong to the 42 pattern and
     # that must not be modified by the generation algorithm. The walls
     # along side these cells must always be up.
-    frozen: frozenset[Cell] = frozenset()
+    frozen: Cells = frozenset()
 
     # The maze being built. This one we just declare as it doesn't
     # exist yet. It is created during the call to carve().
@@ -76,7 +72,7 @@ class MazeGenerator(ABC):
     # -----------------------------------------------------------------
     # Constructors and class lifecycle
 
-    def __init__(self, config: MazeGenerationConfig) -> None:
+    def __init__(self, config: MazeConfig) -> None:
         self.config = config
 
     def __init_subclass__(cls) -> None:
@@ -89,21 +85,22 @@ class MazeGenerator(ABC):
         such value is stored into the shared dictionary algorithms.
         """
         if cls.name:
-            MazeGenerator.algorithms[cls.name] = cls        
+            MazeGenerator.algorithms[cls.name] = cls
 
     @classmethod
-    def from_config(cls, config: MazeGenerationConfig) -> "MazeGenerator":
+    def from_config(cls, config: MazeConfig) -> "MazeGenerator":
         """Factory that builds a specific MazeGeneration.
 
         If algorithm is None then the default generator is built. This
         is decided by the value of the `default` class attribute.
         """
-        chosen = config.algorithm if config.algorithm is not None else cls.default
+        chosen = (config.gen_algorithm if config.gen_algorithm is not None
+                  else cls.default)
         chosen = chosen.strip().lower()
         if chosen not in cls.algorithms:
             known = ", ".join(sorted(cls.algorithms)) or "none registered"
             raise ValueError(
-                f"no generation algorithm called {config.algorithm!r}; "
+                f"no generation algorithm called {config.gen_algorithm!r}; "
                 f"there is {known}"
             )
         return cls.algorithms[chosen](config)
@@ -125,14 +122,14 @@ class MazeGenerator(ABC):
         """
         if self.config.seed is not None:
             random.seed(self.config.seed)
-            
+
         self.maze = self._blank()
 
         # select the frozen cells that must not be modified by the
         # algorithm and that form the 42 pattern. This is done BEFORE
         # the algorithm execution itself.
         self.frozen = forty_two.reserve(self.maze)
-        
+
         yield self.maze
         yield from self._run()
         if not self.config.perfect:
@@ -252,7 +249,8 @@ class MazeGenerator(ABC):
                 if self.config.exit_cell not in self.maze.region_of(
                     entry_col, entry_row, banned=edge)]
 
-    def _closed_across(self, near: frozenset[Cell]) -> list[tuple[Cell, Direction]]:
+    def _closed_across(self, near: Cells
+                       ) -> list[tuple[Cell, Direction]]:
         """Walls standing between the cells in ``near`` and the rest."""
         return [((col, row), side)
                 for col in range(self.maze.width)

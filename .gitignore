@@ -24,3 +24,6 @@ Thumbs.db
 desktop.ini
 *:Zone.Identifier
 *.swp
+
+# Manim animations: scene scripts and the videos they render
+docs/manim/
