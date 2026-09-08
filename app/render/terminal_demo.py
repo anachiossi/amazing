@@ -60,7 +60,7 @@ def main() -> None:
     carving = MazeGenerationConfig(11, 9, (0, 0), (10, 8),
                                    perfect=False, seed=3)
     generator = MazeGenerator.from_config(carving)
-    plan = Drawing(title="A-MAZE-ING", fit=True,
+    plan = Drawing(title="A-MAZE-ING",
                    message=["carving — the 42 comes out of the maze"])
     animate(generator.carve(), plan, delay=0.05)
     animate((generator.maze,),

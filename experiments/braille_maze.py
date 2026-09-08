@@ -30,7 +30,7 @@ two gives half-blocks, which halve the height and keep solid lines.
 import sys
 
 import rainbow
-from app.render.terminal import horizontal, vertical
+from app.render.terminal import maze_wall_above, maze_wall_left
 from mazegen import Maze, MazeGenerationConfig, MazeGenerator
 
 # Which bit each dot of a Braille character owns, by column and row.
@@ -50,10 +50,10 @@ def bitmap(maze: Maze) -> list[list[bool]]:
     grid = [[False] * cols for _ in range(rows)]
     for row in range(height + 1):
         for col in range(width + 1):
-            if col < width and horizontal(maze, col, row):
+            if col < width and maze_wall_above(maze, col, row):
                 for step in range(STEP + 1):
                     grid[STEP * row][STEP * col + step] = True
-            if row < height and vertical(maze, col, row):
+            if row < height and maze_wall_left(maze, col, row):
                 for step in range(STEP + 1):
                     grid[STEP * row + step][STEP * col] = True
     # A cell nothing can reach is one of the 42's, which is how the

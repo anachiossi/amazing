@@ -13,19 +13,25 @@ the cases stay readable.
 
 import contextlib
 import io
+import os
 import random
 import re
 import unittest
+from collections.abc import Iterator
 from itertools import product
+from unittest.mock import patch
 
 from mazegen import Direction, Maze
 
-from app.render.terminal import (CELL_WIDTH, STANDARD_SKIN, AnimationFrame,
+from app.render.terminal import (CELL_WIDTH, FRAME, STANDARD_SKIN,
+                                 AnimationFrame,
                                  Drawing, Element, Frame, JoinedElement,
-                                 animate, clear_screen, drawing_size,
-                                 horizontal, junction, paint, palette_line,
-                                 path_frames, path_links, paths_links,
-                                 render, show, vertical)
+                                 animate, clear_screen, colour_menu,
+                                 drawing_size, maze_junction, maze_wall_above,
+                                 maze_wall_left, merge_paths, paint,
+                                 path_frames, path_sides,
+                                 redraw, render, show, show_cursor,
+                                 TooSmallTerminal)
 
 SIDES = (Direction.N, Direction.E, Direction.S, Direction.W)
 
@@ -42,6 +48,12 @@ def drawn(maze: Maze, drawing: Drawing | None = None) -> str:
     through here, and the ones about colour call ``render`` directly.
     """
     return plain(render(maze, drawing))
+
+
+def overwritten(drawing: str) -> str:
+    """A drawing as ``redraw`` writes it: each line erasing its row."""
+    return drawing.replace("\n", "\033[K\n")
+
 
 FLUSH = Frame(head=0, tail=0, sides=0)
 WALL_SYMBOLS = (set(STANDARD_SKIN.wall.joints
@@ -110,14 +122,14 @@ class SegmentTest(TerminalTest):
         """A segment is the wall the two cells agree on."""
         maze = Maze(3, 2)
         maze.destroy_wall(0, 0, Direction.E)
-        self.assertFalse(vertical(maze, 1, 0))
-        self.assertTrue(vertical(maze, 2, 0))
+        self.assertFalse(maze_wall_left(maze, 1, 0))
+        self.assertTrue(maze_wall_left(maze, 2, 0))
 
     def test_the_last_row_and_column(self) -> None:
         """Past the last cell, the segment is read from the other side."""
         maze = Maze(2, 2)
-        self.assertTrue(vertical(maze, 2, 0))     # E of the last column
-        self.assertTrue(horizontal(maze, 0, 2))   # S of the last row
+        self.assertTrue(maze_wall_left(maze, 2, 0))     # E of the last column
+        self.assertTrue(maze_wall_above(maze, 0, 2))   # S of the last row
 
     def test_a_segment_that_does_not_exist(self) -> None:
         """No cell shares it, so there is no wall — not a wall by default.
@@ -126,9 +138,9 @@ class SegmentTest(TerminalTest):
         the four arms are simply not there.
         """
         maze = Maze(2, 2)
-        self.assertFalse(vertical(maze, 0, -1))
-        self.assertFalse(horizontal(maze, -1, 0))
-        self.assertFalse(horizontal(maze, 2, 0))
+        self.assertFalse(maze_wall_left(maze, 0, -1))
+        self.assertFalse(maze_wall_above(maze, -1, 0))
+        self.assertFalse(maze_wall_above(maze, 2, 0))
 
 
 class WallTest(TerminalTest):
@@ -182,8 +194,8 @@ class BorderTest(TerminalTest):
             self.assertTrue(line.startswith("┃"))
             self.assertTrue(line.endswith("┃"))
 
-    def test_the_border_is_drawn_closed_whatever_the_maze_says(self
-                                                              ) -> None:
+    def test_the_border_is_drawn_closed_whatever_the_maze_says(
+            self) -> None:
         """The border is drawn first, and never asked about.
 
         The outside of a maze is walled by definition — the subject
@@ -228,14 +240,15 @@ class JunctionTest(TerminalTest):
 
     def test_a_crossing_inside_the_maze(self) -> None:
         """Four walls meeting inside give the thin crossing."""
-        self.assertEqual(junction(Maze(3, 3), 1, 1, STANDARD_SKIN)[0], "┼")
+        self.assertEqual(
+            maze_junction(Maze(3, 3), 1, 1, STANDARD_SKIN)[0], "┼")
 
     def test_the_element_says_which_table_was_used(self) -> None:
         """A junction on the frame is the border's, inside is the wall's."""
         maze = Maze(3, 3)
-        self.assertIs(junction(maze, 0, 0, STANDARD_SKIN)[1],
+        self.assertIs(maze_junction(maze, 0, 0, STANDARD_SKIN)[1],
                       STANDARD_SKIN.border)
-        self.assertIs(junction(maze, 1, 1, STANDARD_SKIN)[1],
+        self.assertIs(maze_junction(maze, 1, 1, STANDARD_SKIN)[1],
                       STANDARD_SKIN.wall)
 
 
@@ -328,13 +341,13 @@ class PathsTest(TerminalTest):
     def test_more_paths_than_colours_start_again(self) -> None:
         """A third path takes the first colour back."""
         elements = STANDARD_SKIN.paths
-        self.assertIs(paths_links([[(0, 0)], [(1, 0)], [(2, 0)]],
+        self.assertIs(merge_paths([[(0, 0)], [(1, 0)], [(2, 0)]],
                                   elements)[(2, 0)][1], elements[0])
 
     def test_a_cell_walked_once_keeps_its_path_colour(self) -> None:
         """Only sharing makes a meeting: one path is still itself."""
         elements = STANDARD_SKIN.paths
-        links = paths_links([[(0, 0), (1, 0)]], elements,
+        links = merge_paths([[(0, 0), (1, 0)]], elements,
                             STANDARD_SKIN.meeting)
         self.assertIs(links[(0, 0)][1], elements[0])
 
@@ -351,7 +364,7 @@ class PathTest(TerminalTest):
 
     def test_sides_of_each_cell(self) -> None:
         """A cell of the path reaches towards its neighbours in it."""
-        sides = path_links([(0, 0), (1, 0), (1, 1)])
+        sides = path_sides([(0, 0), (1, 0), (1, 1)])
         self.assertEqual(sides[(0, 0)], Direction.E)
         self.assertEqual(sides[(1, 0)], Direction.W | Direction.S)
         self.assertEqual(sides[(1, 1)], Direction.N)
@@ -366,7 +379,7 @@ class PathTest(TerminalTest):
         """The line runs through the cells and the openings between."""
         maze = self.straight_maze()
         lines = self.lines(maze, Drawing(paths=[[(col, 0)
-                                               for col in range(4)]]))
+                                                 for col in range(4)]]))
         char_row, first = self.middle(0, 0)
         _, last = self.middle(3, 0)
         drawn = lines[char_row][first:last + 1]
@@ -462,7 +475,7 @@ class FrameTest(TerminalTest):
         """The head carries the title, in the middle of the picture."""
         frame = Frame(head=2, tail=2, sides=2)
         lines = drawn(Maze(6, 3), Drawing(title="MAZE",
-                                           frame=frame)).split("\n")
+                                          frame=frame)).split("\n")
         line = next(line for line in lines if "MAZE" in line)
         left = line.index("MAZE")
         self.assertLessEqual(abs(left - (len(line) - left - 4)), 1)
@@ -471,7 +484,7 @@ class FrameTest(TerminalTest):
         """A message sits in the middle, like the title."""
         frame = Frame(head=1, tail=2, sides=2)
         lines = drawn(Maze(6, 3), Drawing(message=["ready"],
-                                           frame=frame)).split("\n")
+                                          frame=frame)).split("\n")
         line = next(line for line in lines if "ready" in line)
         left = line.index("ready")
         self.assertLessEqual(abs(left - (len(line) - left - 5)), 1)
@@ -480,7 +493,7 @@ class FrameTest(TerminalTest):
         """The C-key swatches sit on the same canvas as the message."""
         maze = Maze(20, 15)
         drawing = Drawing()
-        line = palette_line(maze, drawing)
+        line = colour_menu(maze, drawing)
         visible = plain(line)
         columns, _ = drawing_size(20, 15, drawing.cell_width, drawing.frame)
         self.assertEqual(len(visible), columns)
@@ -494,7 +507,7 @@ class FrameTest(TerminalTest):
         frame = Frame(head=1, tail=3, sides=1)
         quiet = drawn(Maze(4, 3), Drawing(frame=frame)).split("\n")
         talking = drawn(Maze(4, 3), Drawing(message=["hello"],
-                                             frame=frame)).split("\n")
+                                            frame=frame)).split("\n")
         self.assertEqual(len(quiet), len(talking))
         self.assertEqual(quiet[:-3], talking[:-3])
 
@@ -615,17 +628,76 @@ class AnimationTest(TerminalTest):
         self.assertEqual(self.capture(lambda: show(maze)),
                          render(maze) + "\n")
 
-    def test_clear_screen_sends_the_cursor_home(self) -> None:
-        """Clearing is what puts the next frame over the last one."""
+    def test_clear_screen_wipes_the_screen(self) -> None:
+        """A real wipe, used once before the first frame."""
         self.assertEqual(self.capture(clear_screen), "\033[H\033[J")
+
+    def test_a_frame_overwrites_instead_of_wiping(self) -> None:
+        """No blank screen between frames, and no trailing newline.
+
+        Wiping first leaves the screen empty until the frame arrives,
+        and a trailing newline scrolls a window the drawing exactly
+        fills. Both of those are what a flicker is made of.
+        """
+        maze = self.random_maze(4, 3)
+        written = self.capture(lambda: redraw(maze))
+        self.assertTrue(written.startswith("\033[H"))
+        self.assertNotIn("\033[J", written[:-3])
+        self.assertTrue(written.endswith("\033[K\033[J"))
+        self.assertFalse(written.endswith("\n"))
+
+    def test_every_line_erases_the_rest_of_its_row(self) -> None:
+        """Each row is cleared as it is overwritten, not beforehand."""
+        maze = self.random_maze(4, 3)
+        written = self.capture(lambda: redraw(maze))
+        self.assertEqual(written.count("\033[K"),
+                         len(render(maze).split("\n")))
+
+    def test_a_maze_too_big_for_the_window_is_refused(self) -> None:
+        """No drawing at all, and a message the reader can act on."""
+        with patch("shutil.get_terminal_size",
+                   return_value=os.terminal_size((40, 12))):
+            with self.assertRaises(TooSmallTerminal) as refused:
+                render(Maze(20, 15))
+        said = str(refused.exception)
+        self.assertIn("85 columns x 36 lines", said)
+        self.assertIn("40 x 12", said)
+        self.assertIn("45 columns", said)
+        self.assertIn("24 lines", said)
+        self.assertIn("ctrl and minus", said)
+
+    def test_a_window_that_fits_exactly_is_not_refused(self) -> None:
+        """Needing all of it is still fitting in it."""
+        needed = drawing_size(20, 15, CELL_WIDTH, FRAME)
+        with patch("shutil.get_terminal_size",
+                   return_value=os.terminal_size(needed)):
+            self.assertTrue(render(Maze(20, 15), Drawing(frame=FRAME)))
+
+    def test_the_cursor_is_hidden_while_animating(self) -> None:
+        """And put back afterwards, so the terminal is left usable."""
+        printed = self.capture(lambda: animate([Maze(2, 2)], delay=0.0))
+        self.assertIn("\033[?25l", printed)
+        self.assertTrue(printed.endswith("\033[?25h"))
+
+    def test_the_cursor_comes_back_even_when_animating_fails(self) -> None:
+        """A ctrl-c mid-animation must not leave the cursor gone."""
+        def boom() -> None:
+            def frames() -> Iterator[Maze]:
+                yield Maze(2, 2)
+                raise KeyboardInterrupt
+            animate(frames(), delay=0.0)
+        with self.assertRaises(KeyboardInterrupt):
+            self.capture(boom)
+        self.assertEqual(self.capture(show_cursor), "\033[?25h")
 
     def test_one_frame_per_state(self) -> None:
         """Each state given is drawn once, in the order given."""
         mazes = [Maze(2, 2), self.random_maze(2, 2), self.open_maze(2, 2)]
         printed = self.capture(lambda: animate(mazes, delay=0.0))
-        self.assertEqual(printed.count("\033[H\033[J"), len(mazes))
+        self.assertEqual(printed.count("\033[H\033[J"), 1)
+        self.assertEqual(printed.count("\033[H"), len(mazes) + 1)
         for maze in mazes:
-            self.assertIn(render(maze), printed)
+            self.assertIn(overwritten(render(maze)), printed)
 
     def test_a_frame_can_carry_its_own_drawing(self) -> None:
         """A snapshot is a maze and what to draw on it, together."""
@@ -636,8 +708,10 @@ class AnimationTest(TerminalTest):
         frames = [AnimationFrame(entered, Drawing(title="in")),
                   AnimationFrame(left, Drawing(title="out"))]
         printed = self.capture(lambda: animate(frames, delay=0.0))
-        self.assertIn(render(entered, Drawing(title="in")), printed)
-        self.assertIn(render(left, Drawing(title="out")), printed)
+        self.assertIn(overwritten(render(entered, Drawing(title="in"))),
+                      printed)
+        self.assertIn(overwritten(render(left, Drawing(title="out"))),
+                      printed)
 
     def test_a_path_is_revealed_one_cell_at_a_time(self) -> None:
         """The frames of a path grow by a cell each time.

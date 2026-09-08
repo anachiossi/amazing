@@ -16,9 +16,9 @@ import random
 import sys
 
 from app.config import MazeConfig, MazeConfigError
-from app.render.terminal import (WALL_COLOURS, Drawing, TooSmall,
-                                 apply_wall_colour, palette_line,
-                                 read_key, redraw, show)
+from app.render.terminal import (WALL_COLOURS, Drawing, TooSmallTerminal,
+                                 apply_wall_colour, colour_menu, read_key,
+                                 redraw, show)
 from mazegen import MazeGenerator
 from mazegen import MazeSolver
 
@@ -28,13 +28,10 @@ ACTION_BAR = "R  redraw   P  path   C  colour   Q  quit"
 
 def message_for(drawing: Drawing, config: MazeConfig,
                 seed: int | None, algorithm: str) -> list[str]:
-    """The lines under the maze, least worth keeping first.
+    """The lines under the maze: how it was made, and the keys.
 
-    A short window gives these up from the top, so the order is the
-    order they can be lost in: which algorithm drew it is a thing the
-    defence can be told out loud, the size and the seed are what
-    somebody reading the screen cannot work out for themselves, and
-    the keys are never given up at all.
+    Which algorithm drew it, then the size and the seed somebody
+    reading the screen cannot work out for themselves, then the keys.
     """
     seed_text = seed if seed is not None else "—"
     shape = "perfect" if config.is_perfect else "braided"
@@ -58,51 +55,52 @@ def main() -> int:
         solver = MazeSolver.from_config(config.to_solver_config())
         path = solver.solve(maze)
 
-        drawing = Drawing(title="A-MAZE-ING", fit=True)
-        # Said before it is asked whether it fits: the lines under the
-        # maze are part of what has to fit, and a window too short for
-        # them is what the fit gives the title up for.
-        drawing.message = message_for(
-            drawing, config, generator.config.seed, generator.name)
-        drawing.fit_to(maze)
-    except (MazeConfigError, ValueError, TooSmall) as error:
+        drawing = Drawing(title="A-MAZE-ING")
+    except (MazeConfigError, ValueError, TooSmallTerminal) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
     drawing.message = message_for(
         drawing, config, generator.config.seed, generator.name)
 
-    if not sys.stdin.isatty():
-        show(maze, drawing)
-        return 0
+    try:
+        if not sys.stdin.isatty():
+            show(maze, drawing)
+            return 0
 
-    while True:
-        drawing.message = message_for(
-            drawing, config, generator.config.seed, generator.name)
-        redraw(maze, drawing)
+        while True:
+            drawing.message = message_for(
+                drawing, config, generator.config.seed, generator.name)
+            redraw(maze, drawing)
 
-        key = read_key()
-        if key in ("q", "Q", "\x03", "\x1b"):
-            break
-        if key in ("r", "R"):
-            generator.config.seed = random.randrange(1 << 30)
-            maze = generator.generate()
-            # A new maze is a new way through it, so the route is
-            # asked for again whether or not it is on screen: turning
-            # it on later would otherwise draw the old maze's path.
-            path = solver.solve(maze)
-            if drawing.paths:
-                drawing.paths = (path,)
-        if key in ("p", "P"):
-            if drawing.paths:
-                drawing.paths = ()
-            else:
-                drawing.paths = (path,)
-        if key in ("c", "C"):
-            print(palette_line(maze, drawing))
-            choice = read_key()
-            if choice in "12345":
-                apply_wall_colour(drawing, WALL_COLOURS[int(choice) - 1])
+            key = read_key()
+            if key in ("q", "Q", "\x03", "\x1b"):
+                break
+            if key in ("r", "R"):
+                generator.config.seed = random.randrange(1 << 30)
+                maze = generator.generate()
+                # A new maze is a new way through it, so the route is
+                # asked for again whether or not it is on screen: turning
+                # it on later would otherwise draw the old maze's path.
+                path = solver.solve(maze)
+                if drawing.paths:
+                    drawing.paths = (path,)
+            if key in ("p", "P"):
+                if drawing.paths:
+                    drawing.paths = ()
+                else:
+                    drawing.paths = (path,)
+            if key in ("c", "C"):
+                print(colour_menu(maze, drawing))
+                choice = read_key()
+                if choice in "12345":
+                    apply_wall_colour(drawing, WALL_COLOURS[int(choice) - 1])
+
+    except TooSmallTerminal as error:
+        # The window can be made smaller while the program is running,
+        # so this is asked on every frame rather than once at the start.
+        print(f"error: {error}", file=sys.stderr)
+        return 1
 
     return 0
 
