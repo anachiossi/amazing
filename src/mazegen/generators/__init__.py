@@ -6,5 +6,6 @@ here and a line below.
 """
 
 from .kruskal import Kruskal
+from .backtracker import Backtracker
 
-__all__ = ["Kruskal"]
+__all__ = ["Kruskal", "Backtracker"]
