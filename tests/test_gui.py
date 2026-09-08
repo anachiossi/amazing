@@ -17,7 +17,8 @@ from mazegen import Direction, Maze
 from app.render.gui import (DOWN, ESCAPE, FOOT, HEAD, KEYS, LEFT, LINE, MARGIN,
                             MAX_CELL, MIN_CELL, RIGHT, STANDARD_SKIN, TAIL,
                             TAIL_LINES, UP, Canvas, Layout, Scene, TooSmall,
-                            ascii_only, colour, draw, key_letter, write_line)
+                            ascii_only, colour, draw, key_letter, path_prefixes,
+                            write_line)
 
 # A screen big enough that nothing has to be given up for it.
 ROOMY = (3000, 2000)
@@ -266,16 +267,18 @@ class TextTest(unittest.TestCase):
     def test_anything_else_becomes_a_question_mark(self) -> None:
         self.assertEqual(ascii_only("ဩ"), "?")
 
-    def test_the_keys_are_two_lines(self) -> None:
-        self.assertEqual(len(KEYS), 2)
+    def test_the_keys_are_three_lines(self) -> None:
+        self.assertEqual(len(KEYS), 3)
         self.assertIn("R generate", KEYS[0])
         self.assertIn("P path", KEYS[0])
         self.assertIn("Q quit", KEYS[0])
         self.assertNotIn("arrows", KEYS[0])
         self.assertIn("C wall colour", KEYS[1])
         self.assertIn("F 42 colour", KEYS[1])
-        self.assertIn("G gen. alg.", KEYS[1])
-        self.assertIn("S solver alg.", KEYS[1])
+        self.assertIn("G gen. alg.", KEYS[2])
+        self.assertIn("A gen. anim.", KEYS[2])
+        self.assertIn("S solver alg.", KEYS[2])
+        self.assertIn("V solver anim.", KEYS[2])
 
     def test_the_keys_are_letters_the_font_has(self) -> None:
         # A missing glyph is drawn as "?"; that is how "quit" used to
@@ -322,6 +325,17 @@ class KeyLetterTest(unittest.TestCase):
         self.assertEqual(key_letter(RIGHT), "right")
         self.assertEqual(key_letter(DOWN), "down")
         self.assertEqual(key_letter(65505), "")
+
+
+class PathPrefixesTest(unittest.TestCase):
+    """The solver animation grows the route a cell at a time."""
+
+    def test_the_route_starts_empty_and_ends_whole(self) -> None:
+        path = ((0, 0), (1, 0), (1, 1))
+        frames = list(path_prefixes(path))
+        self.assertEqual(frames[0], ())
+        self.assertEqual(frames[-1], path)
+        self.assertEqual(len(frames), len(path) + 1)
 
 
 class SceneTest(unittest.TestCase):

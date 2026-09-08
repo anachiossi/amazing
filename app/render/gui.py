@@ -50,7 +50,9 @@ colour is perfectly invisible, so everything drawn here is opaque.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
+from time import monotonic
 from typing import Any, Callable, Literal, Sequence
 
 import rainbow
@@ -68,16 +70,20 @@ OPAQUE = 0xFF000000
 # keys. Head and tail hold text, so they are counted in lines of it,
 # and the tail holds as many lines as ``TAIL_LINES`` says — a longer
 # message loses its first lines rather than its last, so the keys are
-# never the thing that falls off. Two lines of keys plus the three
-# captions and a blank between them is six. ``FOOT`` is empty space
+# never the thing that falls off. Three lines of keys plus the three
+# captions and a blank between them is seven. ``FOOT`` is empty space
 # under the last of those lines, so the keys are not on the window's
 # bottom edge.
 MARGIN = 24
 LINE = 20
 HEAD = 2 * LINE
-TAIL_LINES = 6
+TAIL_LINES = 7
 FOOT = LINE
 TAIL = TAIL_LINES * LINE + FOOT
+
+# How long one animation frame stays on screen. carve() yields after
+# every wall, so this is also how fast the maze grows.
+FRAME = 0.012
 
 # How big a cell may be. The largest is a matter of taste; the
 # smallest is not, since a cell has to hold a wall on each side and
@@ -206,7 +212,8 @@ FORTY_TWO_COLOURS = ("robin", "cadmium", "flamingo", "verdigris", "snow")
 # the second is how you change it.
 KEYS = (
     "R generate   P path   Q quit",
-    "C wall colour   F 42 colour   G gen. alg.   S solver alg.",
+    "C wall colour   F 42 colour",
+    "G gen. alg.   A gen. anim.   S solver alg.   V solver anim.",
 )
 
 # The window is never narrower than the longest line of keys: a key
@@ -557,6 +564,25 @@ class Scene:
     message: Sequence[str] = ()
 
 
+@dataclass
+class Playback:
+    """A maze that arrives one change at a time, then a finished scene.
+
+    ``frames`` is what ``carve()`` yields. ``finish`` is called with the
+    last maze once the iterator is spent, so the path can be solved
+    against the finished grid rather than a half-carved one.
+    """
+
+    frames: Iterator[Maze]
+    finish: Callable[[Maze], Scene]
+
+
+def path_prefixes(path: Path) -> Iterator[Path]:
+    """The route revealed one cell at a time, empty first."""
+    for end in range(len(path) + 1):
+        yield path[:end]
+
+
 class MazeWindow:
     """A window showing one maze, and the keys that change it.
 
@@ -568,11 +594,12 @@ class MazeWindow:
     What the keys do to the maze itself is not this window's to
     decide. ``on_maze`` is the way out of that: whoever opens the
     window says what R, G, S and the arrows do, and the window asks.
+    A and V only flip bits here; the next R or G reads them.
     """
 
     def __init__(self, scene: Scene, skin: Skin = STANDARD_SKIN,
-                 on_maze: Callable[[str], Scene | None] | None = None
-                 ) -> None:
+                 on_maze: Callable[[str, bool], Scene | Playback | None]
+                 | None = None) -> None:
         # Imported here rather than at the top of the file: MLX is
         # only needed by a program that opens a window, and the rest
         # of this module is drawing anyone can read and test without
@@ -585,8 +612,13 @@ class MazeWindow:
         self.skin = skin
         self.on_maze = on_maze
         self.show_path = False
+        self.gen_anim = False
+        self.solver_anim = False
         self.wall_colour = 0
         self.forty_two_colour = 0
+        self._play: Playback | None = None
+        self._path_play: Iterator[Path] | None = None
+        self._due = 0.0
 
         _, across, down = self.mlx.mlx_get_screen_size(self.mlx_ptr)
         self.layout = Layout.fit(
@@ -625,8 +657,14 @@ class MazeWindow:
         # Text is pixels in the same image. mlx_string_put is one GPU
         # blit per letter; after 64 MiniLibX clears the frame and the
         # maze (and the path) vanish under leftover glyphs.
-        shown = "P hide path" if self.show_path else "P path"
-        keys = [line.replace("P path", shown) for line in KEYS]
+        keys = list(KEYS)
+        keys[0] = keys[0].replace(
+            "P path", "P hide path" if self.show_path else "P path")
+        keys[-1] = keys[-1].replace(
+            "A gen. anim.", "A gen. on" if self.gen_anim else "A gen. anim.")
+        keys[-1] = keys[-1].replace(
+            "V solver anim.",
+            "V solver on" if self.solver_anim else "V solver anim.")
         write_line(self.canvas, self.scene.title, HEAD - LINE,
                    self.skin.title)
         bottom = self.layout.window[1] - TAIL
@@ -647,8 +685,18 @@ class MazeWindow:
         if key in ("\x1b", "q"):
             self.mlx.mlx_loop_exit(self.mlx_ptr)
             return
-        if key == "p":
-            self.show_path = not self.show_path
+        if key == "a":
+            self.gen_anim = not self.gen_anim
+        elif key == "v":
+            self.solver_anim = not self.solver_anim
+        elif key == "p":
+            if self.show_path:
+                self.show_path = False
+            elif self.solver_anim and self.scene.path:
+                self._begin_path(self.scene.path)
+                return
+            else:
+                self.show_path = True
         elif key == "c":
             self.wall_colour = (self.wall_colour + 1) % len(WALL_COLOURS)
             self.skin = replace(
@@ -660,10 +708,16 @@ class MazeWindow:
                 self.skin,
                 forty_two=colour(FORTY_TWO_COLOURS[self.forty_two_colour]))
         elif self.on_maze is not None:
-            scene = self.on_maze(key)
-            if scene is None:
+            if self._play is not None and key not in ("r", "g"):
                 return
-            self.scene = scene
+            result = self.on_maze(key, self.gen_anim)
+            if result is None:
+                return
+            if isinstance(result, Playback):
+                self._begin(result)
+                return
+            self._stop()
+            self.scene = result
         else:
             return
         self.draw()
@@ -672,14 +726,73 @@ class MazeWindow:
         """Leave when the window's close button is pressed."""
         self.mlx.mlx_loop_exit(self.mlx_ptr)
 
+    def _begin(self, play: Playback) -> None:
+        """Start carving on the loop hook, one wall per frame."""
+        self._stop()
+        self._play = play
+        try:
+            maze = next(play.frames)
+        except StopIteration:
+            self.scene = play.finish(self.scene.maze)
+            self.draw()
+            return
+        self.scene.maze = maze
+        self.scene.path = ()
+        self.draw()
+        self._due = monotonic() + FRAME
+        self.mlx.mlx_loop_hook(self.mlx_ptr, self._tick, 0)
+
+    def _begin_path(self, path: Path) -> None:
+        """Reveal the solved route one cell at a time."""
+        self._path_play = path_prefixes(path)
+        self.show_path = True
+        self._due = monotonic()
+        self.mlx.mlx_loop_hook(self.mlx_ptr, self._tick, 0)
+        self._tick()
+
+    def _tick(self, _param: Any = None) -> None:
+        """Advance the playing animation if a frame is due."""
+        if monotonic() < self._due:
+            return
+        self._due = monotonic() + FRAME
+        if self._play is not None:
+            try:
+                self.scene.maze = next(self._play.frames)
+                self.scene.path = ()
+                self.draw()
+            except StopIteration:
+                play = self._play
+                self._play = None
+                self.scene = play.finish(self.scene.maze)
+                if self.solver_anim and self.scene.path:
+                    self._begin_path(self.scene.path)
+                else:
+                    self._stop()
+                    self.draw()
+            return
+        if self._path_play is not None:
+            try:
+                self.scene.path = next(self._path_play)
+                self.draw()
+            except StopIteration:
+                self._path_play = None
+                self._stop()
+
+    def _stop(self) -> None:
+        """Take the loop hook off when nothing is playing."""
+        self._play = None
+        self._path_play = None
+        self.mlx.mlx_loop_hook(self.mlx_ptr, None, 0)
+
 
 def show(scene: Scene, skin: Skin = STANDARD_SKIN,
-         on_maze: Callable[[str], Scene | None] | None = None) -> None:
+         on_maze: Callable[[str, bool], Scene | Playback | None] | None = None
+         ) -> None:
     """Open a window on that maze and run until the user leaves."""
     MazeWindow(scene, skin, on_maze).run()
 
 
-__all__ = ["Canvas", "Layout", "MazeWindow", "Scene", "Skin",
+__all__ = ["Canvas", "Layout", "MazeWindow", "Playback", "Scene", "Skin",
            "STANDARD_SKIN", "TooSmall", "ascii_only", "colour", "draw",
-           "key_letter", "show", "write_line", "KEYS", "WALL_COLOURS",
-           "FORTY_TWO_COLOURS"]
+           "key_letter", "path_prefixes", "show", "write_line", "KEYS",
+           "WALL_COLOURS", "FORTY_TWO_COLOURS"]

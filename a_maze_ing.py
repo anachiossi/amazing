@@ -12,10 +12,10 @@ where they draw. What is left here is the one thing none of them can
 decide: which of the two to open, and what should happen when the
 answer is that the maze does not fit at all.
 
-The window answers two lines of keys: R for a new maze, P for the
-path, the arrows for the entry, Q to leave; C and F cycle colours, G
-and S cycle the generator and the solver. The terminal keeps R, P, C
-and Q.
+The window answers three lines of keys: R for a new maze, P for the
+path, the arrows for the entry, Q to leave; C and F cycle colours; G
+and S cycle the generator and the solver, A and V whether those run
+as an animation. The terminal keeps R, P, C and Q.
 """
 
 import random
@@ -170,16 +170,23 @@ def in_window(config: MazeConfig, generator: MazeGenerator,
         return gui.Scene(current, solver.solve(current), TITLE,
                          describes(config, generator.name, solver.name))
 
-    def on_maze(key: str) -> gui.Scene | None:
+    def finish(current: Maze) -> gui.Scene:
+        nonlocal maze
+        maze = current
+        return make_scene(maze)
+
+    def on_maze(key: str, animate: bool = False
+                ) -> gui.Scene | gui.Playback | None:
         nonlocal generator, solver, maze
-        if key == "r":
-            generator.config.seed = random.randrange(1 << 30)
-            maze = generator.generate()
-            return make_scene(maze)
-        if key == "g":
-            config.gen_algorithm = next_named(
-                MazeGenerator.algorithms, generator.name)
-            generator = MazeGenerator.from_config(config)
+        if key in ("r", "g"):
+            if key == "g":
+                config.gen_algorithm = next_named(
+                    MazeGenerator.algorithms, generator.name)
+                generator = MazeGenerator.from_config(config)
+            else:
+                generator.config.seed = random.randrange(1 << 30)
+            if animate:
+                return gui.Playback(generator.carve(), finish)
             maze = generator.generate()
             return make_scene(maze)
         if key == "s":

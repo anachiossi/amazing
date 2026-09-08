@@ -51,9 +51,6 @@ help:
 	'install' 'create $(VENV) and install the dependencies' \
 	'run'     'draw the maze $(CONFIG) asks for' \
 	'debug'   'run it under pdb'
-	@printf '  $(DIM)%-12s %s$(RESET)\n' \
-	'' 'RENDER=gui       in a window, with MiniLibX (the default)' \
-	'' 'RENDER=terminal  fitted to the terminal'
 	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Test'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'test' 'run the unit tests' \
