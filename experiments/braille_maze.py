@@ -31,7 +31,7 @@ import sys
 
 import rainbow
 from app.render.terminal import horizontal, vertical
-from mazegen import Maze, MazeGenerationConfig, MazeGenerator
+from mazegen import Maze, MazeConfig, MazeGenerator
 
 # Which bit each dot of a Braille character owns, by column and row.
 DOTS: dict[tuple[int, int], int] = {
@@ -62,7 +62,7 @@ def bitmap(maze: Maze) -> list[list[bool]]:
     # same as one just carved.
     for row in range(height):
         for col in range(width):
-            if maze.no_access(col, row):
+            if maze.wall_count(col, row) == 4:
                 for down in range(1, STEP):
                     for across in range(1, STEP):
                         grid[STEP * row + down][STEP * col + across] = True
@@ -89,7 +89,7 @@ def packed(grid: list[list[bool]], ink: str = "chambray") -> list[str]:
 def main(argv: list[str]) -> int:
     """Draw one maze, at whatever size was asked for."""
     width, height = (int(argv[0]), int(argv[1])) if len(argv) > 1 else (20, 15)
-    maze = MazeGenerator.from_config(MazeGenerationConfig(
+    maze = MazeGenerator.from_config(MazeConfig(
         width, height, (0, 0), (width - 1, height - 1),
         perfect=False, seed=7)).generate()
     grid = bitmap(maze)

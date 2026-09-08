@@ -265,15 +265,11 @@ class Maze:
         """How many of the cell's four walls are closed, 0 to 4.
 
         One is a dead-end seen from the other side, three is a
-        dead-end, four is a cell nobody can reach. Generation and the
-        analyzer both count them, so the counting lives here once.
+        dead-end, and four is a cell nobody can reach — the shape the
+        "42" is drawn in.
         """
         self._check_bounds(col, row)
         return sum(bool(self.grid[col][row] & side) for side in Direction)
-
-    def no_access(self, col: int, row: int) -> bool:
-        """Check if a given cell position is closed by all four walls."""
-        return self.wall_count(col, row) == 4
 
     def build_wall(self, col: int, row: int, direction: Direction) -> None:
         """Build a wall, updating the neighbouring cell as well.

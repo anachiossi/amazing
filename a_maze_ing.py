@@ -15,12 +15,11 @@ non-zero exit.
 import random
 import sys
 
-from app.config import MazeConfig, MazeConfigError
+from app.config import MazeConfigError, read_config
 from app.render.terminal import (WALL_COLOURS, Drawing, TooSmall,
                                  apply_wall_colour, palette_line,
                                  read_key, redraw, show)
-from mazegen import MazeGenerator
-from mazegen import MazeSolver
+from mazegen import MazeConfig, MazeGenerator, MazeSolver
 
 
 ACTION_BAR = "R  redraw   P  path   C  colour   Q  quit"
@@ -37,7 +36,7 @@ def message_for(drawing: Drawing, config: MazeConfig,
     the keys are never given up at all.
     """
     seed_text = seed if seed is not None else "—"
-    shape = "perfect" if config.is_perfect else "braided"
+    shape = "perfect" if config.perfect else "braided"
     return [f"generated with {algorithm}",
             f"{config.width}x{config.height} · {shape} · seed {seed_text}"
             f" · {drawing.cell_width} wide",
@@ -51,11 +50,11 @@ def main() -> int:
         return 1
 
     try:
-        config = MazeConfig(sys.argv[1])
-        generator = MazeGenerator.from_config(config.to_generation_config())
+        config, _output_file = read_config(sys.argv[1])
+        generator = MazeGenerator.from_config(config)
         maze = generator.generate()
 
-        solver = MazeSolver.from_config(config.to_solver_config())
+        solver = MazeSolver.from_config(config)
         path = solver.solve(maze)
 
         drawing = Drawing(title="A-MAZE-ING", fit=True)

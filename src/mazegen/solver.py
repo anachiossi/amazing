@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from . import forty_two
-from .solver_config import MazeSolverConfig
+from .config import MazeConfig
 from .maze import Cell, Direction, Maze, Path
 
 # A passage between two cells, held as the pair it joins so that it
@@ -23,7 +23,7 @@ class MazeSolver(ABC):
     # -----------------------------------------------------------------
     # Constructors and class lifecycle
 
-    def __init__(self, config: MazeSolverConfig) -> None:
+    def __init__(self, config: MazeConfig) -> None:
         self.config = config
 
     def __init_subclass__(cls) -> None:
@@ -31,13 +31,14 @@ class MazeSolver(ABC):
             MazeSolver.algorithms[cls.name] = cls        
 
     @classmethod
-    def from_config(cls, config: MazeSolverConfig) -> "MazeSolver":
-        chosen = config.algorithm if config.algorithm is not None else cls.default
+    def from_config(cls, config: MazeConfig) -> "MazeSolver":
+        chosen = (config.solve_algorithm if config.solve_algorithm is not None
+                  else cls.default)
         chosen = chosen.strip().lower()
         if chosen not in cls.algorithms:
             known = ", ".join(sorted(cls.algorithms)) or "none registered"
             raise ValueError(
-                f"no solver algorithm called {config.algorithm!r}; "
+                f"no solver algorithm called {config.solve_algorithm!r}; "
                 f"there is {known}"
             )
         return cls.algorithms[chosen](config)

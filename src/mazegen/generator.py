@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 
 from . import forty_two
-from .generation_config import MazeGenerationConfig
+from .config import MazeConfig
 from .maze import Cell, Direction, Maze
 
 # A passage between two cells, held as the pair it joins so that it
@@ -75,7 +75,7 @@ class MazeGenerator(ABC):
     # -----------------------------------------------------------------
     # Constructors and class lifecycle
 
-    def __init__(self, config: MazeGenerationConfig) -> None:
+    def __init__(self, config: MazeConfig) -> None:
         self.config = config
 
     def __init_subclass__(cls) -> None:
@@ -91,18 +91,19 @@ class MazeGenerator(ABC):
             MazeGenerator.algorithms[cls.name] = cls        
 
     @classmethod
-    def from_config(cls, config: MazeGenerationConfig) -> "MazeGenerator":
+    def from_config(cls, config: MazeConfig) -> "MazeGenerator":
         """Factory that builds a specific MazeGeneration.
 
         If algorithm is None then the default generator is built. This
         is decided by the value of the `default` class attribute.
         """
-        chosen = config.algorithm if config.algorithm is not None else cls.default
+        chosen = (config.gen_algorithm if config.gen_algorithm is not None
+                  else cls.default)
         chosen = chosen.strip().lower()
         if chosen not in cls.algorithms:
             known = ", ".join(sorted(cls.algorithms)) or "none registered"
             raise ValueError(
-                f"no generation algorithm called {config.algorithm!r}; "
+                f"no generation algorithm called {config.gen_algorithm!r}; "
                 f"there is {known}"
             )
         return cls.algorithms[chosen](config)

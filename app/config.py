@@ -1,6 +1,6 @@
 """Configuration file reading."""
 
-from mazegen import Cell, MazeGenerationConfig, MazeSolverConfig
+from mazegen import Cell, MazeConfig
 
 # The maze sizes the program agrees to draw. The subject sets no
 # ceiling; this one is here so that a slip like WIDTH=99999 is refused
@@ -16,81 +16,56 @@ class MazeConfigError(Exception):
     """Error raised when the config file or keys are invalid."""
 
 
-class MazeConfig:
-    """Values read from a ``KEY=VALUE`` file (ignores comments `#´).
+def read_config(path: str) -> tuple[MazeConfig, str]:
+    """Read a ``KEY=VALUE`` file (ignores comments `#´).
 
-    Each value is read and converted once, here, into an attribute of
-    the type it has to have. Past ``__init__`` this object no longer
-    speaks in strings, so nothing downstream has anything to convert
-    or to check.
+    Gives back the settings the maze is built and walked with, and the
+    file the maze is to be written to. OUTPUT_FILE comes back on its
+    own because mazegen never writes anything: the name would be a
+    field nothing in the library could use.
     """
+    values = _read(path)
 
-    def __init__(self, path: str) -> None:
-        """Open the file, read its values, then check and convert them."""
-        values = _read(path)
+    width = _int(values, "width")
+    height = _int(values, "height")
+    entry = _point(values, "entry")
+    exit_cell = _point(values, "exit")
+    output_file = _need(values, "output_file")
+    perfect = _bool(values, "perfect")
+    # Optional: absent is not an error, it means "you choose".
+    seed = _int(values, "seed") if "seed" in values else None
 
-        self.width: int = _int(values, "width")
-        self.height: int = _int(values, "height")
-        self.entry: Cell = _point(values, "entry")
-        self.exit: Cell = _point(values, "exit")
-        self.output_file: str = _need(values, "output_file")
-        self.is_perfect: bool = _bool(values, "perfect")
+    _check(width, height, entry, exit_cell)
 
-        # Optional: absent is not an error, it means "you choose".
-        self.seed: int | None = (
-            _int(values, "seed") if "seed" in values else None
-        )
-        self.gen_algorithm: str | None = values.get("gen_algorithm")
-        self.solve_algorithm: str | None = values.get("solve_algorithm")
+    config = MazeConfig(
+        width=width,
+        height=height,
+        entry_cell=entry,
+        exit_cell=exit_cell,
+        perfect=perfect,
+        seed=seed,
+        gen_algorithm=values.get("gen_algorithm"),
+        solve_algorithm=values.get("solve_algorithm"),
+    )
+    return config, output_file
 
-        self._check()
 
-    def _check(self) -> None:
-        """Check the values describe a maze that can exist."""
-        for name, size in (("WIDTH", self.width), ("HEIGHT", self.height)):
-            if not MIN_SIZE <= size <= MAX_SIZE:
-                raise MazeConfigError(
-                    f"{name} must be between {MIN_SIZE} and "
-                    f"{MAX_SIZE}, got {size}"
-                )
-        for name, (col, row) in (("ENTRY", self.entry), ("EXIT", self.exit)):
-            if not (0 <= col < self.width and 0 <= row < self.height):
-                raise MazeConfigError(
-                    f"{name} falls outside a {self.width}x{self.height} "
-                    f"maze: column {col}, row {row}"
-                )
-        if self.entry == self.exit:
-            raise MazeConfigError("ENTRY and EXIT must be different cells")
-
-    def to_generation_config(self) -> MazeGenerationConfig:
-        """The same values, as mazegen's settings object.
-
-        OUTPUT_FILE stays here: generation does not write the file.
-        """
-        return MazeGenerationConfig(
-            width=self.width,
-            height=self.height,
-            entry_cell=self.entry,
-            exit_cell=self.exit,
-            perfect=self.is_perfect,
-            seed=self.seed,
-            algorithm=self.gen_algorithm,
-        )
-
-    def to_solver_config(self) -> MazeSolverConfig:
-        """The same values, as mazegen's settings object.
-
-        OUTPUT_FILE stays here: solving does not write the file.
-        """
-        return MazeSolverConfig(
-            width=self.width,
-            height=self.height,
-            entry_cell=self.entry,
-            exit_cell=self.exit,
-            perfect=self.is_perfect,
-            seed=self.seed,
-            algorithm=self.solve_algorithm,
-        )
+def _check(width: int, height: int, entry: Cell, exit_cell: Cell) -> None:
+    """Check the values describe a maze that can exist."""
+    for name, size in (("WIDTH", width), ("HEIGHT", height)):
+        if not MIN_SIZE <= size <= MAX_SIZE:
+            raise MazeConfigError(
+                f"{name} must be between {MIN_SIZE} and "
+                f"{MAX_SIZE}, got {size}"
+            )
+    for name, (col, row) in (("ENTRY", entry), ("EXIT", exit_cell)):
+        if not (0 <= col < width and 0 <= row < height):
+            raise MazeConfigError(
+                f"{name} falls outside a {width}x{height} "
+                f"maze: column {col}, row {row}"
+            )
+    if entry == exit_cell:
+        raise MazeConfigError("ENTRY and EXIT must be different cells")
 
 
 def _read(path: str) -> dict[str, str]:
