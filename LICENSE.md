@@ -4,7 +4,7 @@ This licence covers the whole of this repository, including the
 reusable `mazegen` package: anyone, including any later project built
 on it, may reuse, modify and redistribute it under the terms below.
 
-Copyright (c) 2026 Leonardo Tamiano, Ana Carolina De Morais Chiossi
+Copyright (c) 2026 Ana Carolina De Morais Chiossi, Leonardo Tamiano
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the
