@@ -9,6 +9,11 @@ CONFIG  := config.txt
 # Python is never touched and a checkout only needs "make".
 VENV    := .venv
 VPYTHON := $(VENV)/bin/python
+# MiniLibX ships as a wheel of its own and is built into its own
+# virtualenv by mlx/init-mlx.sh. The package under src/ is reached from
+# there with PYTHONPATH rather than installed a second time.
+MLXVENV    := mlx/venv
+MLXPYTHON  := $(MLXVENV)/bin/python
 # Written once the dependencies are in: the other targets depend on it,
 # so they install what they need the first time and skip it afterwards.
 STAMP   := $(VENV)/.installed
@@ -24,7 +29,7 @@ YELLOW  := $(ESC)[33m
 RED     := $(ESC)[31m
 RESET   := $(ESC)[0m
 
-.PHONY: install run debug clean fclean lint test help
+.PHONY: install run run-gui debug clean fclean lint test help
 
 # First target of the file, so a bare "make" lands here.
 help:
@@ -41,6 +46,7 @@ help:
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'install' 'create $(VENV) and install the dependencies' \
 	'run'     'draw the maze $(CONFIG) asks for, fitted to the terminal' \
+	'run-gui' 'draw the same maze in a window, with MiniLibX' \
 	'debug'   'run it under pdb'
 	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Test'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
@@ -65,6 +71,14 @@ $(STAMP): pyproject.toml
 
 run: $(STAMP)
 	$(VPYTHON) $(MAIN) $(CONFIG)
+
+# The same program, drawing in a window instead of in the terminal.
+# It runs from the MiniLibX virtualenv, which is the only one that has
+# the library; src/ is put on the path so mazegen is found from there.
+run-gui:
+	@[ -x $(MLXPYTHON) ] || { \
+	  printf 'no MiniLibX yet: run ./mlx/init-mlx.sh first\n' >&2; exit 1; }
+	PYTHONPATH=src $(MLXPYTHON) $(MAIN) $(CONFIG) --gui
 
 debug: $(STAMP)
 	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)
