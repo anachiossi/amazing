@@ -1,8 +1,15 @@
 """Configuration file reading."""
 
-from typing import Any, cast
+from mazegen import Cell, MazeGenerationConfig, MazeSolverConfig
 
-from mazegen import MazeGenerationConfig, MazeSolverConfig
+# The maze sizes the program agrees to draw. The subject sets no
+# ceiling; this one is here so that a slip like WIDTH=99999 is refused
+# at once rather than after a very long wait.
+MIN_SIZE = 1
+MAX_SIZE = 1000
+
+TRUE_WORDS = ("true", "1", "yes")
+FALSE_WORDS = ("false", "0", "no")
 
 
 class MazeConfigError(Exception):
@@ -10,185 +17,50 @@ class MazeConfigError(Exception):
 
 
 class MazeConfig:
-    """Values read from a ``KEY=VALUE`` file (ignores comments `#´)."""
+    """Values read from a ``KEY=VALUE`` file (ignores comments `#´).
 
-    mandatory_keys: dict[str, type] = {
-        "width": int,
-        "height": int,
-        "entry": tuple,
-        "exit": tuple,
-        "output_file": str,
-        "perfect": bool,
-    }
-
-    # Keys for the mazegen that are optional.
-    # If present, they will be converted.
-    optional_keys: dict[str, type] = {
-        "seed": int,
-        "gen_algorithm": str,
-        "solve_algorithm": str,
-    }
-
-    keys_limits: dict[str, tuple[int, int]] = {
-        "width": (1, 1000),
-        "height": (1, 1000),
-    }
+    Each value is read and converted once, here, into an attribute of
+    the type it has to have. Past ``__init__`` this object no longer
+    speaks in strings, so nothing downstream has anything to convert
+    or to check.
+    """
 
     def __init__(self, path: str) -> None:
         """Open the file, read its values, then check and convert them."""
-        self._config: dict[str, Any] = {}
-        try:
-            with open(path, "r", encoding="utf-8") as config_file:
-                for number, raw in enumerate(config_file, start=1):
-                    line = raw.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    if "=" not in line:
-                        raise MazeConfigError(
-                            f"{path}, line {number}: expected KEY=VALUE"
-                        )
-                    key, value = line.split("=", 1)
-                    self._config[key.strip().lower()] = value.strip()
-        except FileNotFoundError as error:
-            raise MazeConfigError(f"config file not found: {path}") from error
-        except OSError as error:
-            raise MazeConfigError(f"cannot read {path}: {error}") from error
+        values = _read(path)
 
-        self._check_mandatory_keys()
-        self._values_casting()
-        self._check_values()
+        self.width: int = _int(values, "width")
+        self.height: int = _int(values, "height")
+        self.entry: Cell = _point(values, "entry")
+        self.exit: Cell = _point(values, "exit")
+        self.output_file: str = _need(values, "output_file")
+        self.is_perfect: bool = _bool(values, "perfect")
 
-    def _check_mandatory_keys(self) -> None:
-        """Check that every mandatory key is present."""
-        for key in self.mandatory_keys:
-            if key not in self._config:
-                raise MazeConfigError(f"missing mandatory key: {key.upper()}")
-
-    def _values_casting(self) -> None:
-        """Convert every known value to the type it must have."""
-        to_convert = dict(self.mandatory_keys)
-        for key, expected_type in self.optional_keys.items():
-            if key in self._config:
-                to_convert[key] = expected_type
-        for key, expected_type in to_convert.items():
-            value = self._config[key]
-            if expected_type is int:
-                self._config[key] = self._to_int(key, value)
-            elif expected_type is bool:
-                self._config[key] = self._to_bool(key, value)
-            elif expected_type is tuple:
-                self._config[key] = self._to_point(key, value)
-            elif expected_type is str:
-                pass  # already a string, nothing to convert
-            else:
-                raise MazeConfigError(
-                    f"no conversion defined for {key.upper()} "
-                    f"({expected_type.__name__})"
-                )
-
-    @staticmethod
-    def _to_int(key: str, value: str) -> int:
-        """Read a whole number, or say which key was wrong."""
-        try:
-            return int(value)
-        except ValueError as error:
-            raise MazeConfigError(
-                f"{key.upper()} must be a whole number, got {value!r}"
-            ) from error
-
-    @staticmethod
-    def _to_bool(key: str, value: str) -> bool:
-        """Read a boolean. An unrecognised word is an error, not False."""
-        lowered = value.lower()
-        if lowered in ("true", "1", "yes"):
-            return True
-        if lowered in ("false", "0", "no"):
-            return False
-        raise MazeConfigError(
-            f"{key.upper()} must be True or False, got {value!r}"
+        # Optional: absent is not an error, it means "you choose".
+        self.seed: int | None = (
+            _int(values, "seed") if "seed" in values else None
         )
+        self.gen_algorithm: str | None = values.get("gen_algorithm")
+        self.solve_algorithm: str | None = values.get("solve_algorithm")
 
-    @staticmethod
-    def _to_point(key: str, value: str) -> tuple[int, int]:
-        """Read a ``col,row`` pair and keep its order exactly as written.
+        self._check()
 
-        19,14 stays (19, 14): the 20th column, the 15th row.
-        """
-        parts = value.split(",")
-        if len(parts) != 2:
-            raise MazeConfigError(
-                f"{key.upper()} must be written as col,row, got {value!r}"
-            )
-        try:
-            col, row = (int(part.strip()) for part in parts)
-        except ValueError as error:
-            raise MazeConfigError(
-                f"{key.upper()} must be two whole numbers, got {value!r}"
-            ) from error
-        return col, row
-
-    def _check_values(self) -> None:
+    def _check(self) -> None:
         """Check the values describe a maze that can exist."""
-        for key, (lowest, highest) in self.keys_limits.items():
-            size = cast(int, self._config[key])
-            if not lowest <= size <= highest:
+        for name, size in (("WIDTH", self.width), ("HEIGHT", self.height)):
+            if not MIN_SIZE <= size <= MAX_SIZE:
                 raise MazeConfigError(
-                    f"{key.upper()} must be between {lowest} and "
-                    f"{highest}, got {size}"
+                    f"{name} must be between {MIN_SIZE} and "
+                    f"{MAX_SIZE}, got {size}"
                 )
-        width = cast(int, self._config["width"])
-        height = cast(int, self._config["height"])
-        for key in ("entry", "exit"):
-            col, row = cast(tuple[int, int], self._config[key])
-            if not (0 <= col < width and 0 <= row < height):
+        for name, (col, row) in (("ENTRY", self.entry), ("EXIT", self.exit)):
+            if not (0 <= col < self.width and 0 <= row < self.height):
                 raise MazeConfigError(
-                    f"{key.upper()} falls outside a {width}x{height} maze: "
-                    f"column {col}, row {row}"
+                    f"{name} falls outside a {self.width}x{self.height} "
+                    f"maze: column {col}, row {row}"
                 )
-        if self._config["entry"] == self._config["exit"]:
+        if self.entry == self.exit:
             raise MazeConfigError("ENTRY and EXIT must be different cells")
-
-    # The casts below are safe: _values_casting has already converted
-    # every value, or raised before we got here.
-
-    @property
-    def width(self) -> int:
-        return cast(int, self._config["width"])
-
-    @property
-    def height(self) -> int:
-        return cast(int, self._config["height"])
-
-    @property
-    def entry(self) -> tuple[int, int]:
-        return cast(tuple[int, int], self._config["entry"])
-
-    @property
-    def exit(self) -> tuple[int, int]:
-        return cast(tuple[int, int], self._config["exit"])
-
-    @property
-    def output_file(self) -> str:
-        return cast(str, self._config["output_file"])
-
-    @property
-    def is_perfect(self) -> bool:
-        return cast(bool, self._config["perfect"])
-
-    @property
-    def seed(self) -> int | None:
-        """Seed for reproducible generation, None if the file omits it."""
-        return cast(int | None, self._config.get("seed"))
-
-    @property
-    def gen_algorithm(self) -> str | None:
-        """Requested generation algorithm, None if the file omits it."""
-        return cast(str | None, self._config.get("gen_algorithm"))
-
-    @property
-    def solve_algorithm(self) -> str | None:
-        """Requested solving algorithm, None if the file omits it."""
-        return cast(str | None, self._config.get("solve_algorithm"))
 
     def to_generation_config(self) -> MazeGenerationConfig:
         """The same values, as mazegen's settings object.
@@ -205,11 +77,10 @@ class MazeConfig:
             algorithm=self.gen_algorithm,
         )
 
-
     def to_solver_config(self) -> MazeSolverConfig:
         """The same values, as mazegen's settings object.
 
-        OUTPUT_FILE stays here: generation does not write the file.
+        OUTPUT_FILE stays here: solving does not write the file.
         """
         return MazeSolverConfig(
             width=self.width,
@@ -221,8 +92,74 @@ class MazeConfig:
             algorithm=self.solve_algorithm,
         )
 
-    
-    def show_config(self) -> None:
-        print("Maze configuration:")
-        for key, value in self._config.items():
-            print(f"{key} = {value}")
+
+def _read(path: str) -> dict[str, str]:
+    """Every KEY=VALUE line of the file, keys lowered, values as written."""
+    values: dict[str, str] = {}
+    try:
+        with open(path, "r", encoding="utf-8") as config_file:
+            for number, raw in enumerate(config_file, start=1):
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    raise MazeConfigError(
+                        f"{path}, line {number}: expected KEY=VALUE"
+                    )
+                key, value = line.split("=", 1)
+                values[key.strip().lower()] = value.strip()
+    except FileNotFoundError as error:
+        raise MazeConfigError(f"config file not found: {path}") from error
+    except OSError as error:
+        raise MazeConfigError(f"cannot read {path}: {error}") from error
+    return values
+
+
+def _need(values: dict[str, str], key: str) -> str:
+    """The value written for that key, or say which one is missing."""
+    if key not in values:
+        raise MazeConfigError(f"missing mandatory key: {key.upper()}")
+    return values[key]
+
+
+def _int(values: dict[str, str], key: str) -> int:
+    """Read a whole number, or say which key was wrong."""
+    value = _need(values, key)
+    try:
+        return int(value)
+    except ValueError as error:
+        raise MazeConfigError(
+            f"{key.upper()} must be a whole number, got {value!r}"
+        ) from error
+
+
+def _bool(values: dict[str, str], key: str) -> bool:
+    """Read a boolean. An unrecognised word is an error, not False."""
+    value = _need(values, key)
+    if value.lower() in TRUE_WORDS:
+        return True
+    if value.lower() in FALSE_WORDS:
+        return False
+    raise MazeConfigError(
+        f"{key.upper()} must be True or False, got {value!r}"
+    )
+
+
+def _point(values: dict[str, str], key: str) -> Cell:
+    """Read a ``col,row`` pair and keep its order exactly as written.
+
+    19,14 stays (19, 14): the 20th column, the 15th row.
+    """
+    value = _need(values, key)
+    parts = value.split(",")
+    if len(parts) != 2:
+        raise MazeConfigError(
+            f"{key.upper()} must be written as col,row, got {value!r}"
+        )
+    try:
+        col, row = (int(part.strip()) for part in parts)
+    except ValueError as error:
+        raise MazeConfigError(
+            f"{key.upper()} must be two whole numbers, got {value!r}"
+        ) from error
+    return col, row

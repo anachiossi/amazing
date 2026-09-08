@@ -163,7 +163,7 @@ class TestBadValues(MazeConfigTest):
 
 
 class TestSizeLimits(MazeConfigTest):
-    """WIDTH and HEIGHT are bounded by keys_limits."""
+    """WIDTH and HEIGHT are bounded by MIN_SIZE and MAX_SIZE."""
 
     def test_width_below_minimum(self) -> None:
         self.assert_rejected(VALID.replace("WIDTH=20", "WIDTH=0"))
