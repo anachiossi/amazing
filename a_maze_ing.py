@@ -27,7 +27,7 @@ from app.render import gui
 from app.render.terminal import (WALL_COLOURS, Drawing, TooSmallTerminal,
                                  apply_wall_colour, colour_menu, read_key,
                                  redraw, show)
-from mazegen import Direction, Maze, MazeConfig, MazeGenerator, MazeSolver
+from mazegen import Direction, Maze, MazeConfig, MazeGenerator, MazeSolver, Path
 
 ACTION_BAR = "R  redraw   P  path   C  colour   Q  quit"
 
@@ -35,7 +35,6 @@ TITLE = "A-MAZE-ING"
 
 NO_MLX = ("this build has no MiniLibX: run ./mlx/init-mlx.sh to install "
           "it, or leave --gui out and draw the maze in the terminal")
-
 
 # Arrow keys move the entry one cell. Named the same way ``key_letter``
 # reports them, so the window can hand the tap through unchanged.
@@ -91,6 +90,15 @@ def describes(config: MazeConfig, algorithm: str, solver: str) -> list[str]:
             f"resolution: {config.width}x{config.height}"]
 
 
+def write_out(maze: Maze, route: Path, output_file: str) -> None:
+    """Write the maze the subject asks for, replacing the last file.
+
+    The grid, the ends and the shortest path: one file, the format
+    IV.5 names, so a later run overwrites rather than appends.
+    """
+    maze.save(output_file, route)
+
+
 def message_for(drawing: Drawing, config: MazeConfig,
                 algorithm: str, solver: str) -> list[str]:
     """The lines under the maze: how it was made, and the keys.
@@ -105,10 +113,11 @@ def message_for(drawing: Drawing, config: MazeConfig,
 
 
 def in_terminal(config: MazeConfig, generator: MazeGenerator,
-                solver: MazeSolver) -> int:
+                solver: MazeSolver, output_file: str) -> int:
     """Draw the maze in the terminal, and run until the user quits."""
     maze = generator.generate()
     path = solver.solve(maze)
+    write_out(maze, path, output_file)
 
     drawing = Drawing(title=TITLE)
     drawing.message = message_for(
@@ -134,6 +143,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
                 # asked for again whether or not it is on screen: turning
                 # it on later would otherwise draw the old maze's path.
                 path = solver.solve(maze)
+                write_out(maze, path, output_file)
                 if drawing.paths:
                     drawing.paths = (path,)
             if key in ("p", "P"):
@@ -157,7 +167,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
 
 
 def in_window(config: MazeConfig, generator: MazeGenerator,
-              solver: MazeSolver) -> int:
+              solver: MazeSolver, output_file: str) -> int:
     """Draw the maze in a window, and let MLX run until it is closed.
 
     A window cannot be driven the way the terminal loop above drives
@@ -167,7 +177,9 @@ def in_window(config: MazeConfig, generator: MazeGenerator,
     maze = generator.generate()
 
     def make_scene(current: Maze) -> gui.Scene:
-        return gui.Scene(current, solver.solve(current), TITLE,
+        route = solver.solve(current)
+        write_out(current, route, output_file)
+        return gui.Scene(current, route, TITLE,
                          describes(config, generator.name, solver.name))
 
     def finish(current: Maze) -> gui.Scene:
@@ -215,13 +227,13 @@ def main() -> int:
         return 1
 
     try:
-        config, _output_file = read_config(arguments[0])
+        config, output_file = read_config(arguments[0])
         generator = MazeGenerator.from_config(config)
         solver = MazeSolver.from_config(config)
         if window:
-            return in_window(config, generator, solver)
-        return in_terminal(config, generator, solver)
-    except (MazeConfigError, ValueError,
+            return in_window(config, generator, solver, output_file)
+        return in_terminal(config, generator, solver, output_file)
+    except (MazeConfigError, ValueError, OSError,
             TooSmallTerminal, gui.TooSmall) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
