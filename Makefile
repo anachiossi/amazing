@@ -14,6 +14,10 @@ VPYTHON := $(VENV)/bin/python
 # there with PYTHONPATH rather than installed a second time.
 MLXVENV    := mlx/venv
 MLXPYTHON  := $(MLXVENV)/bin/python
+# Which renderer "make run" opens: gui for a window, or terminal.
+# "?=" so that RENDER=terminal works from the environment as well as
+# on the command line.
+RENDER  ?= gui
 # Written once the dependencies are in: the other targets depend on it,
 # so they install what they need the first time and skip it afterwards.
 STAMP   := $(VENV)/.installed
@@ -29,7 +33,7 @@ YELLOW  := $(ESC)[33m
 RED     := $(ESC)[31m
 RESET   := $(ESC)[0m
 
-.PHONY: install run run-gui debug clean fclean lint test help
+.PHONY: install run debug clean fclean lint test help
 
 # First target of the file, so a bare "make" lands here.
 help:
@@ -45,9 +49,11 @@ help:
 	@printf '$(GREEN)$(BOLD)%s$(RESET)\n' 'Run'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'install' 'create $(VENV) and install the dependencies' \
-	'run'     'draw the maze $(CONFIG) asks for, fitted to the terminal' \
-	'run-gui' 'draw the same maze in a window, with MiniLibX' \
+	'run'     'draw the maze $(CONFIG) asks for' \
 	'debug'   'run it under pdb'
+	@printf '  $(DIM)%-12s %s$(RESET)\n' \
+	'' 'RENDER=gui       in a window, with MiniLibX (the default)' \
+	'' 'RENDER=terminal  fitted to the terminal'
 	@printf '\n$(YELLOW)$(BOLD)%s$(RESET)\n' 'Test'
 	@printf '  $(BOLD)%-12s$(RESET) %s\n' \
 	'test' 'run the unit tests' \
@@ -69,16 +75,35 @@ $(STAMP): pyproject.toml
 	$(VPYTHON) -m pip install -e .[dev]
 	touch $(STAMP)
 
-run: $(STAMP)
-	$(VPYTHON) $(MAIN) $(CONFIG)
+# The same program either way; RENDER only says which renderer opens
+# it. The two are run from different virtualenvs, which is why the
+# rule is written twice rather than once with a flag: the terminal one
+# runs from $(VENV), which any target here can build, and the window
+# one from the MiniLibX venv, which only mlx/init-mlx.sh can build. So
+# $(VENV) is a prerequisite only of the renderer that uses it.
+ifeq ($(RENDER),gui)
 
-# The same program, drawing in a window instead of in the terminal.
-# It runs from the MiniLibX virtualenv, which is the only one that has
-# the library; src/ is put on the path so mazegen is found from there.
-run-gui:
+# src/ is put on the path so mazegen is found from the other venv,
+# where the package itself was never installed.
+run:
 	@[ -x $(MLXPYTHON) ] || { \
 	  printf 'no MiniLibX yet: run ./mlx/init-mlx.sh first\n' >&2; exit 1; }
 	PYTHONPATH=src $(MLXPYTHON) $(MAIN) $(CONFIG) --gui
+
+else ifeq ($(RENDER),terminal)
+
+run: $(STAMP)
+	$(VPYTHON) $(MAIN) $(CONFIG)
+
+else
+
+# A misspelt renderer is refused rather than quietly given a window or
+# a terminal, since either would look like the spelling had worked.
+run:
+	@printf 'RENDER must be terminal or gui, not %s\n' '$(RENDER)' >&2
+	@exit 1
+
+endif
 
 debug: $(STAMP)
 	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)

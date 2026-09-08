@@ -8,11 +8,12 @@ is a rectangle::
     canvas.rect(x, y, width, height, colour)
 
 That one call draws all of it. A cell is a rectangle, a wall is a thin
-rectangle lying along one of its edges, and the path is a rectangle
-running from the middle of one cell to the middle of the next. Nothing
-has to be looked up: two rectangles that meet at a corner are already
-joined, which is the whole of what the terminal needs its sixteen
-junction pieces for.
+rectangle lying along one of its edges, and the path is a yellow
+rectangle that fills each cell it visits and the opening into the
+next, so the route is one trail rather than a run of separate tiles.
+Nothing has to be looked up: two rectangles that meet at a corner are
+already joined, which is the whole of what the terminal needs its
+sixteen junction pieces for.
 
 Coordinates
 -----------
@@ -47,7 +48,10 @@ leading byte is how opaque the colour is, and MLX means it: at 0 the
 colour is perfectly invisible, so everything drawn here is opaque.
 """
 
-from dataclasses import dataclass, replace
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace
+from time import monotonic
 from typing import Any, Callable, Literal, Sequence
 
 import rainbow
@@ -65,12 +69,16 @@ OPAQUE = 0xFF000000
 # keys. Head and tail hold text, so they are counted in lines of it,
 # and the tail holds as many lines as ``TAIL_LINES`` says — a longer
 # message loses its first lines rather than its last, so the keys are
-# never the thing that falls off.
+# never the thing that falls off. Two lines of keys plus the three
+# captions and a blank between them is six. ``FOOT`` is empty space
+# under the last of those lines, so the keys are not on the window's
+# bottom edge.
 MARGIN = 24
 LINE = 20
 HEAD = 2 * LINE
-TAIL_LINES = 5
-TAIL = TAIL_LINES * LINE
+TAIL_LINES = 6
+FOOT = LINE
+TAIL = TAIL_LINES * LINE + FOOT
 
 # How big a cell may be. The largest is a matter of taste; the
 # smallest is not, since a cell has to hold a wall on each side and
@@ -78,11 +86,15 @@ TAIL = TAIL_LINES * LINE
 MAX_CELL = 40
 MIN_CELL = 6
 
-# How wide a character of the font MLX writes with comes out. The font
-# cannot be asked, so this is measured rather than read, and centring
-# a line of text is an estimate — near enough for a title, and the
-# reason nothing here is laid out against the text.
-CHARACTER = 10
+# Captions are painted into the maze image, not with mlx_string_put.
+# MiniLibX's Vulkan backend only queues 64 image blits per frame, then
+# clears and draws the rest: each letter is a blit, so a title plus the
+# keys already overflow and wipe the maze (and the path). A 5x7 glyph
+# scaled by two is ten pixels wide, which is also how the window width
+# is estimated.
+FONT_WIDTH = 5
+FONT_SCALE = 2
+CHARACTER = FONT_WIDTH * FONT_SCALE
 
 # What the desktop keeps for itself: panels, the bar a window is
 # dragged by, and room to see one window is not the whole screen. Taken
@@ -90,13 +102,45 @@ CHARACTER = 10
 # still be moved.
 DESKTOP = (120, 160)
 
-# The X event a window's close button sends.
+# The event MiniLibX sends when the window's close button is pressed.
 DESTROY_NOTIFY = 33
 
-# The keysym of Escape. Every other key this window listens for is a
-# printable one, and those are their own character code — see
-# ``_on_key``.
+# X events and masks for the keys. MiniLibX's mlx_key_hook listens
+# for KeyRelease; KeyPress auto-repeats while the key is held. Both
+# are hooked and folded into one tap — see ``Taps``.
+KEY_PRESS = 2
+KEY_PRESS_MASK = 1
+KEY_RELEASE = 3
+KEY_RELEASE_MASK = 2
+
+# If MiniLibX never sends KeyRelease, the key would stay "down" and
+# eat every later tap. After this long, a new press is a new tap.
+KEY_STALE = 2.0
+
+# The keysym of Escape. Arrow keys are the other non-printable ones
+# this window answers; every other key is a printable one, and those
+# are their own character code — see ``key_letter``.
 ESCAPE = 65307
+LEFT = 65361
+UP = 65362
+RIGHT = 65363
+DOWN = 65364
+# The keypad arrows send a different keysym; they mean the same thing.
+KEYPAD_LEFT = 65430
+KEYPAD_UP = 65431
+KEYPAD_RIGHT = 65432
+KEYPAD_DOWN = 65433
+
+ARROWS = {
+    LEFT: "left",
+    UP: "up",
+    RIGHT: "right",
+    DOWN: "down",
+    KEYPAD_LEFT: "left",
+    KEYPAD_UP: "up",
+    KEYPAD_RIGHT: "right",
+    KEYPAD_DOWN: "down",
+}
 
 
 def colour(name: str | int) -> Colour:
@@ -110,6 +154,68 @@ def colour(name: str | int) -> Colour:
     rgb: tuple[int, int, int] = rainbow.rgb_of(rainbow.number(name))
     red, green, blue = rgb
     return OPAQUE | (red << 16) | (green << 8) | blue
+
+
+def key_letter(keysym: int) -> str:
+    """The character on the key, or empty if this keysym is not a key we use.
+
+    MLX reports X keysyms. A printable key's keysym is the character
+    it types, so one ``chr`` is enough. Escape is returned as itself
+    so the caller does not have to special-case the number, and the
+    arrows as ``left``, ``up``, ``right`` and ``down``.
+    """
+    if keysym == ESCAPE:
+        return "\x1b"
+    if keysym in ARROWS:
+        return ARROWS[keysym]
+    if 32 <= keysym <= 126:
+        return chr(keysym).lower()
+    return ""
+
+
+@dataclass
+class Taps:
+    """One command per physical tap, whatever MiniLibX delivers.
+
+    MiniLibX 2.2 is awkward with keys, and that is a library problem
+    rather than a maze problem:
+
+    * ``mlx_key_hook`` fires on KeyRelease, not KeyPress.
+    * KeyPress auto-repeats while the key is held, so a toggle that
+      listened to every press would flip on and off for one tap.
+    * The C callback is called with three arguments (keysym, param,
+      the raw event); the Python wrapper declares two.
+    * KeyRelease is not always delivered.
+
+    A tap is the **press**. The matching release is never a second
+    command, even if you hold the key for a second — a time window
+    would treat that release as a new tap and undo the first. A
+    release with no press still counts: that is mlx_key_hook alone.
+    A press whose release was lost counts again after ``KEY_STALE``.
+    """
+
+    stale: float = KEY_STALE
+    _down: dict[str, float] = field(default_factory=dict)
+
+    def press(self, letter: str, now: float | None = None) -> bool:
+        """True if this press is a new tap, not an auto-repeat."""
+        if not letter:
+            return False
+        moment = monotonic() if now is None else now
+        last = self._down.get(letter)
+        if last is not None and moment - last < self.stale:
+            return False
+        self._down[letter] = moment
+        return True
+
+    def release(self, letter: str) -> bool:
+        """True if the press never arrived and this release is the tap."""
+        if not letter:
+            return False
+        if letter in self._down:
+            del self._down[letter]
+            return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -137,7 +243,7 @@ STANDARD_SKIN = Skin(
     background=colour("cinder"),
     floor=colour("onyx"),
     wall=colour("chambray"),
-    path=colour("gamboge"),
+    path=colour("yellow"),
     entry=colour("peppermint"),
     exit=colour("madder"),
     forty_two=colour("robin"),
@@ -152,19 +258,22 @@ WALL_COLOURS = ("chambray", "vermilion", "gamboge", "peppermint",
                 "ultramarine")
 FORTY_TWO_COLOURS = ("robin", "cadmium", "flamingo", "verdigris", "snow")
 
-# The keys, as the window itself says them. The window owns this line
-# because it owns the keys: whoever opens it should not have to know
-# what it answers to.
-KEYS = "R new maze   P path   C wall colour   F 42 colour   Q quit"
+# The keys, as the window itself says them. The window owns these
+# lines because it owns the keys: whoever opens it should not have to
+# know what it answers to. The first line is how you live in the maze;
+# the second is how you change it.
+KEYS = (
+    "R generate   P path   Q quit",
+    "C wall colour   F 42 colour   G gen. alg.   S solver alg.",
+)
 
-# The window is never narrower than the line of keys: a key nobody can
-# read is a key nobody has.
-MIN_WINDOW_WIDTH = len(KEYS) * CHARACTER + 2 * MARGIN
+# The window is never narrower than the longest line of keys: a key
+# nobody can read is a key nobody has.
+MIN_WINDOW_WIDTH = max(len(line) for line in KEYS) * CHARACTER + 2 * MARGIN
 
 
 # What the font has instead of the characters a caption is likely to
-# carry. MLX writes with an X core font, which knows ASCII and nothing
-# else: everything past it comes out as a pair of question marks.
+# carry. The 5x7 glyphs are ASCII; everything past that is a "?".
 PLAIN = {"·": "-", "—": "-", "×": "x", "’": "'", "“": '"', "”": '"'}
 
 
@@ -173,6 +282,95 @@ def ascii_only(text: str) -> str:
     for fancy, plain in PLAIN.items():
         text = text.replace(fancy, plain)
     return "".join(letter if letter.isascii() else "?" for letter in text)
+
+
+_FONT_5X7: dict[str, tuple[int, ...]] = {
+    " ": (0, 0, 0, 0, 0, 0, 0),
+    "-": (0, 0, 14, 0, 0, 0, 0),
+    ".": (0, 0, 0, 0, 0, 4, 0),
+    ":": (0, 4, 4, 0, 4, 4, 0),
+    "0": (14, 17, 19, 21, 25, 17, 14),
+    "1": (4, 12, 4, 4, 4, 4, 14),
+    "2": (14, 17, 1, 6, 8, 16, 31),
+    "3": (14, 17, 1, 6, 1, 17, 14),
+    "4": (2, 6, 10, 18, 31, 2, 2),
+    "5": (31, 16, 30, 1, 1, 17, 14),
+    "6": (6, 8, 16, 30, 17, 17, 14),
+    "7": (31, 1, 2, 4, 8, 8, 8),
+    "8": (14, 17, 17, 14, 17, 17, 14),
+    "9": (31, 17, 2, 4, 8, 0, 8),
+    "?": (14, 17, 1, 2, 4, 0, 4),
+    "A": (14, 17, 17, 31, 17, 17, 17),
+    "B": (30, 17, 17, 30, 17, 17, 30),
+    "C": (14, 17, 16, 16, 16, 17, 14),
+    "D": (30, 17, 17, 17, 17, 17, 30),
+    "E": (31, 16, 16, 30, 16, 16, 31),
+    "F": (31, 16, 16, 30, 16, 16, 16),
+    "G": (14, 17, 16, 19, 17, 17, 14),
+    "H": (17, 17, 17, 31, 17, 17, 17),
+    "I": (14, 4, 4, 4, 4, 4, 14),
+    "J": (1, 1, 1, 1, 17, 17, 14),
+    "K": (17, 18, 20, 24, 20, 18, 17),
+    "L": (16, 16, 16, 16, 16, 16, 31),
+    "M": (17, 27, 21, 21, 17, 17, 17),
+    "N": (17, 25, 21, 19, 17, 17, 17),
+    "O": (14, 17, 17, 17, 17, 17, 14),
+    "P": (30, 17, 17, 30, 16, 16, 16),
+    "Q": (14, 17, 17, 17, 21, 18, 13),
+    "R": (30, 17, 17, 30, 20, 18, 17),
+    "S": (14, 17, 16, 14, 1, 17, 14),
+    "T": (31, 4, 4, 4, 4, 4, 4),
+    "U": (17, 17, 17, 17, 17, 17, 14),
+    "V": (17, 17, 17, 17, 17, 10, 4),
+    "W": (17, 17, 17, 21, 21, 21, 10),
+    "X": (17, 17, 10, 4, 10, 17, 17),
+    "Y": (17, 17, 10, 4, 4, 4, 4),
+    "Z": (31, 1, 2, 4, 8, 16, 31),
+    "a": (0, 0, 14, 1, 15, 17, 15),
+    "b": (16, 16, 30, 17, 17, 17, 30),
+    "c": (0, 0, 14, 17, 16, 17, 14),
+    "d": (1, 1, 15, 17, 17, 17, 15),
+    "e": (0, 0, 14, 17, 31, 16, 14),
+    "f": (6, 8, 28, 8, 8, 8, 8),
+    "g": (0, 0, 15, 17, 15, 1, 14),
+    "h": (16, 16, 30, 17, 17, 17, 17),
+    "i": (4, 0, 12, 4, 4, 4, 14),
+    "j": (4, 0, 12, 4, 4, 20, 8),
+    "k": (16, 16, 18, 20, 24, 20, 18),
+    "l": (12, 4, 4, 4, 4, 4, 14),
+    "m": (0, 0, 27, 21, 21, 21, 17),
+    "n": (0, 0, 30, 17, 17, 17, 17),
+    "o": (0, 0, 14, 17, 17, 17, 14),
+    "p": (0, 0, 30, 17, 30, 16, 16),
+    "q": (0, 0, 15, 17, 15, 1, 1),
+    "r": (0, 0, 22, 25, 16, 16, 16),
+    "s": (0, 0, 15, 16, 14, 1, 30),
+    "t": (8, 8, 28, 8, 8, 8, 6),
+    "u": (0, 0, 17, 17, 17, 17, 15),
+    "v": (0, 0, 17, 17, 17, 10, 4),
+    "w": (0, 0, 17, 17, 21, 21, 10),
+    "x": (0, 0, 17, 10, 4, 10, 17),
+    "y": (0, 0, 17, 17, 15, 1, 14),
+    "z": (0, 0, 31, 2, 4, 8, 31),
+}
+
+
+def write_line(canvas: Canvas, text: str, top: int, ink: Colour) -> None:
+    """Paint one centred line into the image, 5x7 glyphs scaled by two."""
+    line = ascii_only(text)
+    if not line:
+        return
+    glyph_w = FONT_WIDTH * FONT_SCALE
+    left = max(0, (canvas.width - len(line) * glyph_w) // 2)
+    for index, letter in enumerate(line):
+        rows = _FONT_5X7.get(letter) or _FONT_5X7.get(letter.swapcase()) or _FONT_5X7["?"]
+        ox = left + index * glyph_w
+        for row, bits in enumerate(rows):
+            for col in range(FONT_WIDTH):
+                if bits & (1 << (FONT_WIDTH - 1 - col)):
+                    canvas.rect(ox + col * FONT_SCALE,
+                                top + row * FONT_SCALE,
+                                FONT_SCALE, FONT_SCALE, ink)
 
 
 class TooSmall(Exception):
@@ -214,7 +412,7 @@ class Layout:
         return left + col * self.cell, HEAD + row * self.cell
 
     def centre(self, col: int, row: int) -> tuple[int, int]:
-        """The middle pixel of that cell, where the path runs."""
+        """The middle pixel of that cell."""
         left, top = self.corner(col, row)
         half = self.cell // 2
         return left + half, top + half
@@ -325,23 +523,22 @@ def _cells(canvas: Canvas, maze: Maze, layout: Layout,
 
 def _path(canvas: Canvas, layout: Layout, path: Path,
           colour: Colour) -> None:
-    """The route, as one rectangle per step.
+    """The route, as one yellow trail through the cells it visits.
 
-    A rectangle drawn from the middle of one cell to the middle of the
-    next covers both middles and everything between them, so a route
-    turns a corner without anyone drawing the corner.
-
-    The last cell has no next one and is joined to itself, which comes
-    out as the square at the middle that ends the line. A route of one
-    cell is that square and nothing else, and an empty route draws
-    nothing at all.
+    Each cell of the path is filled, and so is the opening into the
+    next, so neighbouring cells join instead of sitting as separate
+    tiles. Walls are drawn later and cover the edges they own. An
+    empty route draws nothing at all.
     """
-    thick = max(2, layout.cell // 4)
-    half = thick // 2
-    for step, cell in enumerate(path):
-        following = path[step + 1] if step + 1 < len(path) else cell
+    for col, row in path:
+        left, top = layout.corner(col, row)
+        canvas.rect(left, top, layout.cell, layout.cell, colour)
+    for step, cell in enumerate(path[:-1]):
+        following = path[step + 1]
         x, y = layout.centre(*cell)
         other_x, other_y = layout.centre(*following)
+        thick = layout.cell
+        half = thick // 2
         canvas.rect(min(x, other_x) - half, min(y, other_y) - half,
                     abs(other_x - x) + thick, abs(other_y - y) + thick,
                     colour)
@@ -407,9 +604,9 @@ class Scene:
     """A maze, the way through it, and what to say about it.
 
     The four of them travel together because they change together: a
-    new maze has a new route, and a caption naming its seed is only
-    true of that maze. So regenerating hands back one of these rather
-    than three things the window would have to keep in step.
+    new maze has a new route, and a caption naming how it was made is
+    only true of that maze. So regenerating hands back one of these
+    rather than three things the window would have to keep in step.
     """
 
     maze: Maze
@@ -427,12 +624,13 @@ class MazeWindow:
     is what makes the drawing survive being covered up and uncovered.
 
     What the keys do to the maze itself is not this window's to
-    decide. ``new_scene`` is the way out of that: whoever opens the
-    window says what a new maze is, and R asks for one.
+    decide. ``on_maze`` is the way out of that: whoever opens the
+    window says what R, G, S and the arrows do, and the window asks.
     """
 
     def __init__(self, scene: Scene, skin: Skin = STANDARD_SKIN,
-                 new_scene: Callable[[], Scene] | None = None) -> None:
+                 on_maze: Callable[[str], Scene | None] | None = None
+                 ) -> None:
         # Imported here rather than at the top of the file: MLX is
         # only needed by a program that opens a window, and the rest
         # of this module is drawing anyone can read and test without
@@ -443,7 +641,7 @@ class MazeWindow:
         self.mlx_ptr = self.mlx.mlx_init()
         self.scene = scene
         self.skin = skin
-        self.new_scene = new_scene
+        self.on_maze = on_maze
         self.show_path = False
         self.wall_colour = 0
         self.forty_two_colour = 0
@@ -457,65 +655,115 @@ class MazeWindow:
         self.canvas = Canvas(self.mlx, self.mlx_ptr,
                              window_width, window_height)
 
+    def _x_window_id(self) -> int:
+        """The X id of this window, read off MiniLibX's xcb handle.
+
+        MiniLibX does not hand the id out. The layout of mlx_win_t /
+        mlx__xcb_win_t is the one in mlx 2.2; if it ever moves, focus
+        is skipped rather than the window refused.
+        """
+        from ctypes import Structure, c_int, c_uint32, c_void_p
+
+        class mlx_win_t(Structure):
+            _fields_ = [("next", c_void_p), ("active", c_int),
+                        ("mlx", c_void_p), ("backend_win", c_void_p),
+                        ("gpu_win", c_void_p)]
+
+        class mlx_xcb_win_t(Structure):
+            _fields_ = [("xcb", c_void_p), ("win_id", c_uint32)]
+
+        win = mlx_win_t.from_address(int(self.window))
+        if not win.backend_win:
+            return 0
+        return int(mlx_xcb_win_t.from_address(win.backend_win).win_id)
+
+    def _take_focus(self) -> None:
+        """Make this window the one that receives keys.
+
+        MiniLibX never asks for focus. Under i3 the terminal that
+        launched the program keeps it, so P and the rest never arrive.
+        i3-msg is the reliable ask on i3; XSetInputFocus is the
+        fallback on a WM that honours it.
+        """
+        xid = self._x_window_id()
+        if not xid:
+            return
+        try:
+            from subprocess import DEVNULL, run
+            run(["i3-msg", f"[id={xid}] focus"],
+                stdout=DEVNULL, stderr=DEVNULL, timeout=1, check=False)
+        except (OSError, TimeoutError):
+            pass
+        try:
+            from ctypes import CDLL, c_char_p, c_int, c_ulong, c_void_p
+            x11 = CDLL("libX11.so.6")
+            x11.XOpenDisplay.restype = c_void_p
+            x11.XOpenDisplay.argtypes = [c_char_p]
+            x11.XSetInputFocus.argtypes = [c_void_p, c_ulong, c_int, c_ulong]
+            x11.XFlush.argtypes = [c_void_p]
+            x11.XCloseDisplay.argtypes = [c_void_p]
+            display = x11.XOpenDisplay(None)
+            if not display:
+                return
+            # RevertToParent = 2, CurrentTime = 0
+            x11.XSetInputFocus(display, xid, 2, 0)
+            x11.XFlush(display)
+            x11.XCloseDisplay(display)
+        except OSError:
+            return
+
     def run(self) -> None:
         """Open the window, and hand the program over to MLX."""
-        self.mlx.mlx_expose_hook(self.window, self.draw, None)
-        self.mlx.mlx_key_hook(self.window, self._on_key, None)
+        self.mlx.mlx_expose_hook(self.window, self.draw, 0)
+        self.mlx.mlx_key_hook(self.window, self._on_key, 0)
         self.mlx.mlx_hook(self.window, DESTROY_NOTIFY, 0, self._on_close,
-                          None)
+                          0)
         # Drawn once here as well: the window is on screen by now, and
         # whether its first expose event reaches the hook above is the
         # server's business rather than something to rely on.
         self.draw()
-        self.mlx.mlx_loop(self.mlx_ptr)
+        self._take_focus()
+        # Extra KeyPress events while a key is held. Display-wide, so
+        # it is turned back on when the loop ends.
+        self.mlx.mlx_do_key_autorepeatoff(self.mlx_ptr)
+        try:
+            self.mlx.mlx_loop(self.mlx_ptr)
+        finally:
+            self.mlx.mlx_do_key_autorepeaton(self.mlx_ptr)
         self.mlx.mlx_destroy_image(self.mlx_ptr, self.canvas.image)
         self.mlx.mlx_destroy_window(self.mlx_ptr, self.window)
         self.mlx.mlx_release(self.mlx_ptr)
 
     def draw(self, _param: Any = None) -> None:
-        """Draw everything: the maze as an image, the text over it.
-
-        The maze goes into the image because that is one drawing
-        handed to the window in one go. The text cannot: MLX writes
-        strings on a window, never into an image, so it is written
-        afterwards or it would be written under the maze.
-        """
+        """Draw everything: the maze and the text, then show the image."""
         draw(self.canvas, self.scene.maze, self.layout, self.skin,
              self.scene.path if self.show_path else ())
+        # Text is pixels in the same image. mlx_string_put is one GPU
+        # blit per letter; after 64 MiniLibX clears the frame and the
+        # maze (and the path) vanish under leftover glyphs.
+        shown = "P hide path" if self.show_path else "P path"
+        keys = [line.replace("P path", shown) for line in KEYS]
+        write_line(self.canvas, self.scene.title, HEAD - LINE,
+                   self.skin.title)
+        bottom = self.layout.window[1] - TAIL
+        lines = [*self.scene.message, "", *keys][-TAIL_LINES:]
+        for number, text in enumerate(lines):
+            write_line(self.canvas, text, bottom + (number + 1) * LINE,
+                       self.skin.message)
         self.mlx.mlx_put_image_to_window(self.mlx_ptr, self.window,
                                          self.canvas.image, 0, 0)
-        self._write(self.scene.title, HEAD - LINE, self.skin.title)
-        bottom = self.layout.window[1] - TAIL
-        lines = [*self.scene.message, "", KEYS][-TAIL_LINES:]
-        for number, text in enumerate(lines):
-            self._write(text, bottom + (number + 1) * LINE,
-                        self.skin.message)
-
-    def _write(self, text: str, baseline: int, ink: Colour) -> None:
-        """Write one line of text, centred as closely as MLX allows."""
-        if not text:
-            return
-        line = ascii_only(text)
-        width = self.layout.window[0]
-        left = max(0, (width - len(line) * CHARACTER) // 2)
-        self.mlx.mlx_string_put(self.mlx_ptr, self.window, left, baseline,
-                                ink, line)
+        self.mlx.mlx_do_sync(self.mlx_ptr)
 
     def _on_key(self, keysym: int, _param: Any = None) -> None:
-        """Answer one key press.
+        """Answer one key. The patched MiniLibX sends one KeyPress per tap."""
+        self._apply(key_letter(keysym))
 
-        MLX reports X keysyms, and the keysym of a printable key is
-        the character code of what it types. So one ``chr`` turns the
-        number into the letter on the keycap, and the keys below can
-        be written as themselves instead of as a table of numbers.
-        """
-        key = chr(keysym).lower() if 32 <= keysym <= 126 else ""
-        if keysym == ESCAPE or key == "q":
+    def _apply(self, key: str) -> None:
+        """Carry out one tap. Called once per physical keystroke."""
+        if key in ("\x1b", "q"):
             self.mlx.mlx_loop_exit(self.mlx_ptr)
             return
-        if key == "r" and self.new_scene is not None:
-            self.scene = self.new_scene()
-        elif key == "p":
+        if key == "p":
             self.show_path = not self.show_path
         elif key == "c":
             self.wall_colour = (self.wall_colour + 1) % len(WALL_COLOURS)
@@ -527,6 +775,11 @@ class MazeWindow:
             self.skin = replace(
                 self.skin,
                 forty_two=colour(FORTY_TWO_COLOURS[self.forty_two_colour]))
+        elif self.on_maze is not None:
+            scene = self.on_maze(key)
+            if scene is None:
+                return
+            self.scene = scene
         else:
             return
         self.draw()
@@ -537,11 +790,12 @@ class MazeWindow:
 
 
 def show(scene: Scene, skin: Skin = STANDARD_SKIN,
-         new_scene: Callable[[], Scene] | None = None) -> None:
+         on_maze: Callable[[str], Scene | None] | None = None) -> None:
     """Open a window on that maze and run until the user leaves."""
-    MazeWindow(scene, skin, new_scene).run()
+    MazeWindow(scene, skin, on_maze).run()
 
 
-__all__ = ["Canvas", "Layout", "MazeWindow", "Scene", "Skin",
+__all__ = ["Canvas", "Layout", "MazeWindow", "Scene", "Skin", "Taps",
            "STANDARD_SKIN", "TooSmall", "ascii_only", "colour", "draw",
-           "show", "KEYS", "WALL_COLOURS", "FORTY_TWO_COLOURS"]
+           "key_letter", "show", "write_line", "KEYS", "WALL_COLOURS",
+           "FORTY_TWO_COLOURS"]

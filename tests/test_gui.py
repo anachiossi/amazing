@@ -14,9 +14,10 @@ import unittest
 
 from mazegen import Direction, Maze
 
-from app.render.gui import (HEAD, MARGIN, MAX_CELL, MIN_CELL, STANDARD_SKIN,
-                            Canvas, Layout, Scene, TooSmall, ascii_only,
-                            colour, draw)
+from app.render.gui import (DOWN, ESCAPE, FOOT, HEAD, KEYS, LEFT, LINE, MARGIN,
+                            MAX_CELL, MIN_CELL, RIGHT, STANDARD_SKIN, TAIL,
+                            TAIL_LINES, UP, Canvas, Layout, Scene, TooSmall,
+                            ascii_only, colour, draw, key_letter, write_line)
 
 # A screen big enough that nothing has to be given up for it.
 ROOMY = (3000, 2000)
@@ -102,7 +103,14 @@ class LayoutTest(unittest.TestCase):
         window_width, window_height = layout.window
         left, top = layout.corner(19, 14)
         self.assertLessEqual(left + layout.cell + MARGIN, window_width)
-        self.assertLessEqual(top + layout.cell, window_height)
+        self.assertEqual(top + layout.cell + TAIL, window_height)
+
+    def test_the_tail_leaves_room_under_the_keys(self) -> None:
+        # The last caption sits TAIL_LINES lines into the tail; FOOT
+        # is what remains under it, so the keys are not drawn on the
+        # window's bottom edge.
+        self.assertEqual(TAIL, TAIL_LINES * LINE + FOOT)
+        self.assertGreater(FOOT, 0)
 
     def test_cells_sit_side_by_side(self) -> None:
         layout = Layout.fit(Maze(5, 5), ROOMY)
@@ -194,15 +202,16 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(pixel(canvas, *layout.centre(1, 1)),
                          STANDARD_SKIN.forty_two)
 
-    def test_a_path_joins_the_cells_it_runs_through(self) -> None:
+    def test_a_path_is_a_yellow_trail_through_its_cells(self) -> None:
         maze = Maze(3, 1)
         maze.destroy_wall(0, 0, Direction.E)
         maze.destroy_wall(1, 0, Direction.E)
         canvas, layout = drawn(maze, ((0, 0), (1, 0), (2, 0)))
+        self.assertEqual(STANDARD_SKIN.path, colour("yellow"))
         self.assertEqual(pixel(canvas, *layout.centre(1, 0)),
                          STANDARD_SKIN.path)
-        # And in between, where the two cells meet: an opening the
-        # path runs through is drawn, not left as floor.
+        # Neighbouring cells join: the opening where they meet is the
+        # path, not a gap of floor between two tiles.
         left, top = layout.corner(1, 0)
         self.assertEqual(pixel(canvas, left, top + layout.cell // 2),
                          STANDARD_SKIN.path)
@@ -233,7 +242,18 @@ class DrawTest(unittest.TestCase):
 
 
 class TextTest(unittest.TestCase):
-    """What the X font can be asked to write."""
+    """Captions painted into the image."""
+
+    def test_a_letter_is_painted_on_the_canvas(self) -> None:
+        canvas = canvas_of(80, 20)
+        canvas.fill(colour("cinder"))
+        write_line(canvas, "P", 2, colour("snow"))
+        painted = 0
+        for y in range(canvas.height):
+            for x in range(canvas.width):
+                if pixel(canvas, x, y) == colour("snow"):
+                    painted += 1
+        self.assertGreater(painted, 0)
 
     def test_plain_text_is_left_alone(self) -> None:
         self.assertEqual(ascii_only("20x15 seed 42"), "20x15 seed 42")
@@ -245,6 +265,63 @@ class TextTest(unittest.TestCase):
 
     def test_anything_else_becomes_a_question_mark(self) -> None:
         self.assertEqual(ascii_only("ဩ"), "?")
+
+    def test_the_keys_are_two_lines(self) -> None:
+        self.assertEqual(len(KEYS), 2)
+        self.assertIn("R generate", KEYS[0])
+        self.assertIn("P path", KEYS[0])
+        self.assertIn("Q quit", KEYS[0])
+        self.assertNotIn("arrows", KEYS[0])
+        self.assertIn("C wall colour", KEYS[1])
+        self.assertIn("F 42 colour", KEYS[1])
+        self.assertIn("G gen. alg.", KEYS[1])
+        self.assertIn("S solver alg.", KEYS[1])
+
+    def test_the_keys_are_letters_the_font_has(self) -> None:
+        # A missing glyph is drawn as "?"; that is how "quit" used to
+        # read as "?uit".
+        from app.render.gui import _FONT_5X7
+        missing = sorted({letter for line in KEYS for letter in line
+                          if letter not in _FONT_5X7})
+        self.assertEqual(missing, [])
+
+    def test_q_is_not_drawn_as_a_question_mark(self) -> None:
+        from app.render.gui import _FONT_5X7
+        self.assertNotEqual(_FONT_5X7["Q"], _FONT_5X7["?"])
+        self.assertNotEqual(_FONT_5X7["q"], _FONT_5X7["?"])
+
+    def test_the_title_is_letters_the_font_has(self) -> None:
+        # A-MAZE-ING used to paint as A-MA??-IN?: Z, E and G had no
+        # glyphs, and a missing glyph is "?".
+        from app.render.gui import _FONT_5X7
+        missing = sorted({letter for letter in "A-MAZE-ING"
+                          if letter not in _FONT_5X7})
+        self.assertEqual(missing, [])
+
+    def test_the_alphabet_is_in_the_font(self) -> None:
+        from app.render.gui import _FONT_5X7
+        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        missing = [letter for letter in letters if letter not in _FONT_5X7]
+        self.assertEqual(missing, [])
+
+    def test_a_colon_is_in_the_font(self) -> None:
+        from app.render.gui import _FONT_5X7
+        self.assertIn(":", _FONT_5X7)
+        self.assertNotEqual(_FONT_5X7[":"], _FONT_5X7["?"])
+
+
+class KeyLetterTest(unittest.TestCase):
+    """MLX keysyms become the letters the window answers."""
+
+    def test_key_letter_reads_printable_keys_escape_and_arrows(self) -> None:
+        self.assertEqual(key_letter(ord("p")), "p")
+        self.assertEqual(key_letter(ord("P")), "p")
+        self.assertEqual(key_letter(ESCAPE), "\x1b")
+        self.assertEqual(key_letter(LEFT), "left")
+        self.assertEqual(key_letter(UP), "up")
+        self.assertEqual(key_letter(RIGHT), "right")
+        self.assertEqual(key_letter(DOWN), "down")
+        self.assertEqual(key_letter(65505), "")
 
 
 class SceneTest(unittest.TestCase):

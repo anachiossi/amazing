@@ -12,19 +12,22 @@ where they draw. What is left here is the one thing none of them can
 decide: which of the two to open, and what should happen when the
 answer is that the maze does not fit at all.
 
-Both renderings answer the same keys for the same things — R for a new
-maze, P for the path, C for the colour of the walls, Q to leave.
+The window answers two lines of keys: R for a new maze, P for the
+path, the arrows for the entry, Q to leave; C and F cycle colours, G
+and S cycle the generator and the solver. The terminal keeps R, P, C
+and Q.
 """
 
 import random
 import sys
+from collections.abc import Mapping
 
 from app.config import MazeConfigError, read_config
 from app.render import gui
 from app.render.terminal import (WALL_COLOURS, Drawing, TooSmallTerminal,
                                  apply_wall_colour, colour_menu, read_key,
                                  redraw, show)
-from mazegen import MazeConfig, MazeGenerator, MazeSolver
+from mazegen import Direction, Maze, MazeConfig, MazeGenerator, MazeSolver
 
 ACTION_BAR = "R  redraw   P  path   C  colour   Q  quit"
 
@@ -34,31 +37,70 @@ NO_MLX = ("this build has no MiniLibX: run ./mlx/init-mlx.sh to install "
           "it, or leave --gui out and draw the maze in the terminal")
 
 
-def describes(config: MazeConfig, seed: int | None,
-              algorithm: str) -> list[str]:
+# Arrow keys move the entry one cell. Named the same way ``key_letter``
+# reports them, so the window can hand the tap through unchanged.
+ARROW = {
+    "left": Direction.W,
+    "right": Direction.E,
+    "up": Direction.N,
+    "down": Direction.S,
+}
+
+
+def moved_entry(maze: Maze, key: str) -> tuple[int, int] | None:
+    """The cell one step that way from the entry, or None if it cannot go.
+
+    A wall on that side stops it, as does the edge of the maze. The
+    exit and the cells of the "42" are not places a route should start.
+    """
+    side = ARROW.get(key)
+    if side is None:
+        return None
+    here = maze.get_entry()
+    if here is None:
+        return None
+    col, row = here
+    if maze.get_wall(col, row, side):
+        return None
+    there = maze.across(col, row, side)
+    if there not in maze:
+        return None
+    if there == maze.get_exit() or there in maze.get_frozen():
+        return None
+    return there
+
+
+def next_named(registry: Mapping[str, object], current: str) -> str:
+    """The name after ``current`` in that registry, wrapping around."""
+    names = sorted(registry)
+    if not names:
+        return current
+    if current not in names:
+        return names[0]
+    return names[(names.index(current) + 1) % len(names)]
+
+
+def describes(config: MazeConfig, algorithm: str, solver: str) -> list[str]:
     """What a reader cannot work out by looking at the drawing.
 
-    Which algorithm carved it can be told out loud at the defence; the
-    size and the seed are the two things the screen cannot show, and
-    the seed is the one that makes a maze come back.
+    Which algorithms built and solved it, and how large it is: three
+    facts the maze itself does not write on the walls.
     """
-    seed_text = seed if seed is not None else "—"
-    shape = "perfect" if config.perfect else "braided"
-    return [f"generated with {algorithm}",
-            f"{config.width}x{config.height} · {shape} · seed {seed_text}"]
+    return [f"generation: {algorithm}",
+            f"solver: {solver}",
+            f"resolution: {config.width}x{config.height}"]
 
 
 def message_for(drawing: Drawing, config: MazeConfig,
-                seed: int | None, algorithm: str) -> list[str]:
+                algorithm: str, solver: str) -> list[str]:
     """The lines under the maze: how it was made, and the keys.
 
     A short window gives these up from the top, so the order is the
     order they can be lost in: what ``describes`` says first goes
     first, and the keys are never given up at all.
     """
-    algorithm_line, maze_line = describes(config, seed, algorithm)
-    return [algorithm_line,
-            f"{maze_line} · {drawing.cell_width} wide",
+    return [*describes(config, algorithm, solver),
+            f"{drawing.cell_width} wide",
             ACTION_BAR]
 
 
@@ -70,7 +112,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
 
     drawing = Drawing(title=TITLE)
     drawing.message = message_for(
-        drawing, config, generator.config.seed, generator.name)
+        drawing, config, generator.name, solver.name)
 
     try:
         if not sys.stdin.isatty():
@@ -79,7 +121,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
 
         while True:
             drawing.message = message_for(
-                drawing, config, generator.config.seed, generator.name)
+                drawing, config, generator.name, solver.name)
             redraw(maze, drawing)
 
             key = read_key()
@@ -119,21 +161,40 @@ def in_window(config: MazeConfig, generator: MazeGenerator,
     """Draw the maze in a window, and let MLX run until it is closed.
 
     A window cannot be driven the way the terminal loop above drives
-    itself, because MLX keeps the loop. So what a new maze *is* is
-    handed over as a function and the window calls it when R is
-    pressed — which is the whole of what this has to say.
+    itself, because MLX keeps the loop. So what R, G and S do to the
+    maze is handed over as a function and the window calls it.
     """
-    def scene() -> gui.Scene:
-        maze = generator.generate()
-        return gui.Scene(maze, solver.solve(maze), TITLE,
-                         describes(config, generator.config.seed,
-                                   generator.name))
+    maze = generator.generate()
 
-    def another() -> gui.Scene:
-        generator.config.seed = random.randrange(1 << 30)
-        return scene()
+    def make_scene(current: Maze) -> gui.Scene:
+        return gui.Scene(current, solver.solve(current), TITLE,
+                         describes(config, generator.name, solver.name))
 
-    gui.show(scene(), new_scene=another)
+    def on_maze(key: str) -> gui.Scene | None:
+        nonlocal generator, solver, maze
+        if key == "r":
+            generator.config.seed = random.randrange(1 << 30)
+            maze = generator.generate()
+            return make_scene(maze)
+        if key == "g":
+            config.gen_algorithm = next_named(
+                MazeGenerator.algorithms, generator.name)
+            generator = MazeGenerator.from_config(config)
+            maze = generator.generate()
+            return make_scene(maze)
+        if key == "s":
+            config.solve_algorithm = next_named(
+                MazeSolver.algorithms, solver.name)
+            solver = MazeSolver.from_config(config)
+            return make_scene(maze)
+        there = moved_entry(maze, key)
+        if there is None:
+            return None
+        maze.set_entry(there)
+        config.entry_cell = there
+        return make_scene(maze)
+
+    gui.show(make_scene(maze), on_maze=on_maze)
     return 0
 
 

@@ -7,19 +7,19 @@
 # HEIGHT cannot go below 9 — the "42" pattern needs that many rows.
 # A bigger window takes a bigger maze; too small a one is refused with
 # a message rather than drawn wrong.
-WIDTH=18
-HEIGHT=9
+WIDTH=30
+HEIGHT=30
 
 # Entry and exit, written as x,y — that is column,row
 ENTRY=0,0
-EXIT=17,8
+EXIT=29,29
 
 # Where the generated maze is written
 OUTPUT_FILE=maze.txt
 
 # True  : exactly one path between entry and exit, no loops
 # False : playable board with at least two independent routes
-PERFECT=False
+PERFECT=True
 
 # Optional. SEED fixes the random generation so the same maze comes
 # back every run; leave it out for a different maze each time.

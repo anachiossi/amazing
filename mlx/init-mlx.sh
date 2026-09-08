@@ -36,6 +36,7 @@ _mlx_init() {
     if [ -d "$venv" ]; then
         if [ -x "$venv/bin/python" ] && "$venv/bin/python" -c 'import mlx' 2>/dev/null; then
             echo "==> reusing existing venv $venv"
+            _mlx_rebuild_overlay "$venv"
             return 0
         fi
         echo "init-mlx: $venv exists but has no working mlx (use -f to rebuild)" >&2
@@ -82,7 +83,20 @@ ctypes.CDLL(os.path.join(os.path.dirname(mlx.__file__), "libmlx.so"))
     fi
 
     echo "==> mlx 2.2 ($installed build) installed in $venv"
+    _mlx_rebuild_overlay "$venv"
     return 0
+}
+
+# Overlay on top of the stock wheel: no 10px border, KeyPress without
+# auto-repeat, take focus. Fails softly so a machine that cannot
+# compile MiniLibX still gets the official binary.
+_mlx_rebuild_overlay() {
+    local venv="$1" rebuild
+    rebuild="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rebuild-mlx.sh"
+    if [ -x "$rebuild" ]; then
+        "$rebuild" "$venv" || \
+          echo "warning: stock MiniLibX left in place (rebuild failed)" >&2
+    fi
 }
 
 _mlx_init "$@"
