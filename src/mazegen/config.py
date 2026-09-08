@@ -1,23 +1,29 @@
-"""Settings for maze generation.
+"""Settings for generating and solving a maze.
 
-``MazeGenerationConfig`` is what the generator consumes. It is not the
-program's ``config.txt`` reader; that lives in ``app/`` and translates
-into this.
+One object serves both. The generator and the solver are asked about
+the same maze, between the same two cells; the only thing that differs
+is which algorithm each of them runs, so each reads its own name and
+ignores the other's.
+
+This is not the program's ``config.txt`` reader; that lives in ``app/``
+and translates into this.
 """
 
-Cell = tuple[int, int]
+from .maze import Cell
 
 
-class MazeGenerationConfig:
-    """Size, ends, and how to build a maze.
+class MazeConfig:
+    """Size, ends, and how to build and walk a maze.
 
-    ``algorithm`` is optional: ``None`` means the generator's default.
+    Both algorithm names are optional: ``None`` means whichever the
+    generator or the solver runs by default.
     """
 
     def __init__(self, width: int, height: int,
                  entry_cell: Cell, exit_cell: Cell,
                  perfect: bool = False, seed: int | None = None,
-                 algorithm: str | None = None) -> None:
+                 gen_algorithm: str | None = None,
+                 solve_algorithm: str | None = None) -> None:
         if width < 1 or height < 1:
             raise ValueError(
                 f"a maze needs at least one cell, got {width}x{height}"
@@ -34,4 +40,5 @@ class MazeGenerationConfig:
         self.exit_cell = exit_cell
         self.perfect = perfect
         self.seed = seed
-        self.algorithm = algorithm
+        self.gen_algorithm = gen_algorithm
+        self.solve_algorithm = solve_algorithm

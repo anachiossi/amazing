@@ -45,12 +45,17 @@ TODO: what part of the code is reusable and how. Must cover:
 - how to reach the generated structure and at least one solution
 
 ```python
-# TODO: replace with a working example
-from mazegen import MazeGenerationConfig, MazeGenerator
+from mazegen import MazeConfig, MazeGenerator, MazeSolver
 
-config = MazeGenerationConfig(20, 15, (0, 0), (19, 14))
-generator = MazeGenerator.from_config(config)
-maze = generator.generate()
+# One settings object serves both: the generator and the solver are
+# asked about the same maze, and each reads the algorithm meant for it.
+config = MazeConfig(20, 15, (0, 0), (19, 14), seed=7,
+                    gen_algorithm="kruskal", solve_algorithm="bfs")
+
+maze = MazeGenerator.from_config(config).generate()
+path = MazeSolver.from_config(config).solve(maze)
+
+print(maze.get_dim(), len(path))       # (20, 15) and the route's length
 ```
 
 ## Advanced features

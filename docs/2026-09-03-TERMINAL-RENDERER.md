@@ -13,7 +13,9 @@ maze.get_entry()                    # cell, or None
 maze.get_exit()                     # cell, or None
 ```
 
-Nothing else is read; `grid` is never touched. Stated as a `Protocol` (`MazeView`) so mypy enforces it.
+Nothing else is read; `grid` is never touched.
+
+**`MazeView` deleted (2026-09-08).** The renderers took a `Protocol` naming the handful of methods they were allowed to call, so mypy would reject a write. Both now take the `Maze` itself: the read-only discipline was worth less than the indirection cost, and `Cell`/`Path`/`Paths` moved to `mazegen.maze`, where the generator and solver already needed them.
 
 **Widened from two methods to four (2026-09-04).** The ends used to be handed to the renderer on the `Drawing`; they are the maze's now, since the solver walks between them and the subject's file format writes them in its footer beside the grid — a drawing carrying its own copy could disagree with the maze it was drawn from. `Drawing.entry` and `Drawing.exit` are gone rather than kept as overrides: if marking an arbitrary cell is wanted later it should get its own explicit abstraction, not a second meaning for these two. §4.4 fixes the meeting point at `get_dim` and `get_wall`, so this needs an issue against the minutes.
 
@@ -70,7 +72,7 @@ The sides of a cell index the same 16 pieces the walls use, so a bend in a route
 animate(frames, drawing=None, delay=0.05, reveal=True)
 ```
 
-A frame is a `MazeView`, or an `AnimationFrame` carrying its own `Drawing`. With `reveal`, a drawing that has paths is expanded by `path_frames(maze, drawing)` — every path grows a cell per frame, which is what makes two halves meet. `reveal=False` draws the frame as it is; needed to hold a finished route, since otherwise every call regrows it.
+A frame is a `Maze`, or an `AnimationFrame` carrying its own `Drawing`. With `reveal`, a drawing that has paths is expanded by `path_frames(maze, drawing)` — every path grows a cell per frame, which is what makes two halves meet. `reveal=False` draws the frame as it is; needed to hold a finished route, since otherwise every call regrows it.
 
 The screen is cleared before each frame, never after, so the last frame stays up and a final `delay=0.0` costs nothing.
 
@@ -121,7 +123,6 @@ Earlier this arithmetic lived in `a_maze_ing.py` as well as the renderer and the
 ## Checking
 
 ```bash
-make demo         # sizes, then the animations
 make run          # config.txt, fitted to the terminal
 make test         # 197 cases
 make lint-strict  # flake8 + mypy --strict
@@ -131,4 +132,4 @@ Without the venv, prefix with `PYTHONPATH=src` — `mazegen` and `rainbow` live 
 
 ## Stopgaps
 
-`app/render/terminal_demo.py` (`make demo`) draws a `randomize()` maze and a route written out by hand for seed 168 at 10x5 — change either and the route is nonsense. It lives beside the renderer rather than inside it, and it goes when the generator and solver land: `animate` already takes a generator that yields itself after each wall opened.
+`app/render/terminal_demo.py` (`make demo`) drew a `randomize()` maze and a route written out by hand for seed 168 at 10x5. **Deleted 2026-09-08**, as planned: the generator and solver have landed, so the real pipeline draws what it used to fake.
