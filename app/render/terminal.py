@@ -188,6 +188,16 @@ class Drawing:
         return self.skin if self.skin is not None else STANDARD_SKIN
 
 
+# ``Direction`` is an IntFlag, and every ``&`` or ``|`` on one builds a
+# fresh enum member — tens of thousands per frame, which was more than
+# half the time spent drawing. The bit work below is done on these
+# plain ints instead; ``Direction`` stays the language at the edges.
+NORTH = int(Direction.N)
+EAST = int(Direction.E)
+SOUTH = int(Direction.S)
+WEST = int(Direction.W)
+
+
 def maze_wall_above(maze: Maze, col: int, row: int) -> bool:
     """Is there a horizontal wall segment above cell (col, row)?
 
@@ -289,13 +299,13 @@ def maze_junction(maze: Maze, col: int, row: int,
     width, height = maze.get_dim()
     sides = 0
     if maze_wall_left(maze, col, row - 1):
-        sides |= Direction.N
+        sides |= NORTH
     if maze_wall_left(maze, col, row):
-        sides |= Direction.S
+        sides |= SOUTH
     if maze_wall_above(maze, col, row):
-        sides |= Direction.E
+        sides |= EAST
     if maze_wall_above(maze, col - 1, row):
-        sides |= Direction.W
+        sides |= WEST
     on_frame = col in (0, width) or row in (0, height)
     element = skin.border if on_frame else skin.wall
     return element.piece(sides), element
@@ -711,8 +721,17 @@ def apply_wall_colour(drawing: Drawing, colour: str) -> None:
 # How long one frame is held. Carving yields a frame for every wall it
 # takes down, so it runs at the faster of the two; a route arriving is
 # meant to be followed by eye.
-CARVE_DELAY = 0.02
+# How long a frame is held *on top of* the time it takes to draw one.
+# On a 30x30 that is already some twenty milliseconds, which paces the
+# animation on its own; the pause is what a small maze needs, where a
+# frame costs almost nothing.
+CARVE_DELAY = 0.0
 PATH_DELAY = 0.02
+
+# One carved wall in this many is drawn. A 30x30 carve yields around a
+# thousand frames and drawing one costs some twenty milliseconds, so
+# every one of them is half a minute of watching a wall come down.
+CARVE_EVERY = 5
 
 
 @dataclass
@@ -757,9 +776,25 @@ def show_cursor() -> None:
     sys.stdout.flush()
 
 
+def _play(frame: Maze | AnimationFrame, shared: Drawing,
+          delay: float, reveal: bool) -> None:
+    """Draw one frame, growing its paths a cell at a time if asked."""
+    if isinstance(frame, AnimationFrame):
+        maze, plan = frame.maze, frame.drawing
+    else:
+        maze, plan = frame, shared
+    snapshots = (path_frames(maze, plan)
+                 if reveal and plan.paths
+                 else (AnimationFrame(maze, plan),))
+    for snapshot in snapshots:
+        redraw(snapshot.maze, snapshot.drawing)
+        time.sleep(delay)
+
+
 def animate(frames: Iterable[Maze | AnimationFrame],
             drawing: Drawing | None = None,
-            delay: float = 0.02, reveal: bool = True) -> None:
+            delay: float = 0.05, reveal: bool = True,
+            every: int = 1) -> None:
     """Draw one maze after another in place, as a moving picture.
 
     ``frames`` may be maze states, or ``AnimationFrame`` snapshots
@@ -772,25 +807,33 @@ def animate(frames: Iterable[Maze | AnimationFrame],
 
         animate(generator.carve(), delay=0.02)
 
+    ``every`` draws one frame in that many and lets the rest go by. A
+    carve yields after every single wall, and drawing one costs far
+    more than making one, so what makes a long carve watchable is
+    showing less of it rather than waiting less between frames. The
+    last frame is always drawn, whatever the count says: it is the
+    finished picture.
+
     The screen is wiped once before the first frame; every frame after
     overwrites it in place, so what is left at the end is the finished
     maze. The cursor is hidden for the duration.
     """
+    if every < 1:
+        raise ValueError(f"a frame in every {every} is not a number of "
+                         f"frames; the least is 1")
     shared = drawing or Drawing()
     clear_screen()
     hide_cursor()
     try:
-        for frame in frames:
-            if isinstance(frame, AnimationFrame):
-                maze, plan = frame.maze, frame.drawing
-            else:
-                maze, plan = frame, shared
-            snapshots = (path_frames(maze, plan)
-                         if reveal and plan.paths
-                         else (AnimationFrame(maze, plan),))
-            for snapshot in snapshots:
-                redraw(snapshot.maze, snapshot.drawing)
-                time.sleep(delay)
+        skipped: Maze | AnimationFrame | None = None
+        for number, frame in enumerate(frames):
+            if number % every:
+                skipped = frame
+                continue
+            skipped = None
+            _play(frame, shared, delay, reveal)
+        if skipped is not None:
+            _play(skipped, shared, delay, reveal)
     finally:
         # Even on ctrl-c: a terminal left without a cursor is a
         # terminal the next program has to fix.

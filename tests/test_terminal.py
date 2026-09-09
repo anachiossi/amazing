@@ -772,6 +772,36 @@ class AnimationTest(TerminalTest):
         for maze in mazes:
             self.assertIn(overwritten(render(maze)), printed)
 
+    def test_one_frame_in_every_so_many_is_drawn(self) -> None:
+        """A long carve is made watchable by showing less of it.
+
+        Drawing a frame costs far more than making one, so the frames
+        that are skipped still happen — they are simply not drawn.
+        """
+        mazes = [self.random_maze(2, 2, seed) for seed in range(10)]
+        printed = self.capture(lambda: animate(mazes, delay=0.0, every=3))
+        # Frames 0, 3, 6 and 9, plus the one wipe before the first.
+        self.assertEqual(printed.count("\033[H"), 4 + 1)
+
+    def test_the_last_frame_is_drawn_whatever_the_count(self) -> None:
+        """What is left on the screen has to be the finished picture."""
+        mazes = [self.random_maze(2, 2, seed) for seed in range(9)]
+        printed = self.capture(lambda: animate(mazes, delay=0.0, every=3))
+        # Frames 0, 3 and 6 by the count, then 8 because it is last.
+        self.assertEqual(printed.count("\033[H"), 4 + 1)
+        self.assertIn(overwritten(render(mazes[-1])), printed)
+
+    def test_one_in_every_one_is_every_frame(self) -> None:
+        """The default counts nothing out."""
+        mazes = [self.random_maze(2, 2, seed) for seed in range(4)]
+        printed = self.capture(lambda: animate(mazes, delay=0.0, every=1))
+        self.assertEqual(printed.count("\033[H"), len(mazes) + 1)
+
+    def test_a_frame_in_fewer_than_one_is_refused(self) -> None:
+        """Nothing is drawn at all, rather than every frame twice."""
+        with self.assertRaises(ValueError):
+            animate([Maze(2, 2)], delay=0.0, every=0)
+
     def test_a_frame_can_carry_its_own_drawing(self) -> None:
         """A snapshot is a maze and what to draw on it, together."""
         entered = self.open_maze(3, 2)

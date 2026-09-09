@@ -25,7 +25,8 @@ from dataclasses import replace
 
 from app.config import MazeConfigError, read_config
 from app.render import gui
-from app.render.terminal import (CARVE_DELAY, PATH_DELAY, WALL_COLOURS,
+from app.render.terminal import (CARVE_DELAY, CARVE_EVERY, PATH_DELAY,
+                                 WALL_COLOURS,
                                  Drawing, TooSmallTerminal, animate,
                                  apply_wall_colour, colour_menu, read_key,
                                  redraw, show)
@@ -143,7 +144,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
             return 0
         if animating:
             animate(generator.carve(), replace(drawing, paths=()),
-                    delay=CARVE_DELAY)
+                    delay=CARVE_DELAY, every=CARVE_EVERY)
             maze = generator.maze
 
         while True:
@@ -160,7 +161,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
                 generator.config.seed = random.randrange(1 << 30)
                 if animating:
                     animate(generator.carve(), replace(drawing, paths=()),
-                            delay=CARVE_DELAY)
+                            delay=CARVE_DELAY, every=CARVE_EVERY)
                     maze = generator.maze
                 else:
                     maze = generator.generate()
