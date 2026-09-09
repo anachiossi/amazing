@@ -132,6 +132,7 @@ class TerminalSkin:
     char1: Element | None = None
     char2: Element | None = None
     forty_two: Element | None = None
+    seen: tuple[Element, ...] = ()
 
 
 STANDARD_SKIN = TerminalSkin(
@@ -153,6 +154,8 @@ STANDARD_SKIN = TerminalSkin(
     char1=Element("இ", ink=rainbow.ink("cadmium")),
     char2=Element("&", ink=rainbow.ink("flamingo")),
     forty_two=Element("ဩ", ink=rainbow.ink("robin")),
+    seen=(Element("·", ink=rainbow.ink("drab")),
+          Element("·", ink=rainbow.ink("dusk"))),
 )
 
 FRAME = Frame()
@@ -163,12 +166,15 @@ class Drawing:
     """Everything a rendering needs to draw.
 
     ``paths`` is a list of routes, drawn one element each; a single
-    search is a list of one. The two ends are not here — they are the
-    maze's, and ``render`` reads them from it. ``skin`` left alone
-    means the standard one.
+    search is a list of one. ``visited`` is the same shape and holds
+    what a solver went through on its way to them, one sequence per
+    search front — a route is drawn over its own search, never under
+    it. The two ends are not here — they are the maze's, and ``render``
+    reads them from it. ``skin`` left alone means the standard one.
     """
 
     paths: Paths = ()
+    visited: Paths = ()
     char1: Cell | None = None
     char2: Cell | None = None
     title: str = ""
@@ -328,7 +334,8 @@ def _wall_line(maze: Maze, row: int, plan: Drawing,
 
 def _cell_line(maze: Maze, row: int, plan: Drawing,
                links: dict[Cell, Link],
-               marks: dict[Cell, Element]) -> str:
+               marks: dict[Cell, Element],
+               seen: dict[Cell, Element]) -> str:
     """Return the line through a row: its walls and its centres.
 
     The wall standing beside each cell, then the inside of the cell —
@@ -350,13 +357,14 @@ def _cell_line(maze: Maze, row: int, plan: Drawing,
                 _path_through(links, (col, row), Direction.W)))
         if col == width:
             break
-        out.append(_cell_body(col, row, plan, links, marks))
+        out.append(_cell_body(col, row, plan, links, marks, seen))
     return "".join(out)
 
 
 def maze_line(maze: Maze, char_row: int, plan: Drawing,
               links: dict[Cell, Link],
-              marks: dict[Cell, Element]) -> str:
+              marks: dict[Cell, Element],
+              seen: dict[Cell, Element]) -> str:
     """Return one line of the maze, whichever kind it is.
 
     A 2x2 maze is five lines, and they alternate::
@@ -373,13 +381,14 @@ def maze_line(maze: Maze, char_row: int, plan: Drawing,
     """
     row, kind = divmod(char_row, 2)
     if kind:
-        return _cell_line(maze, row, plan, links, marks)
+        return _cell_line(maze, row, plan, links, marks, seen)
     return _wall_line(maze, row, plan, links)
 
 
 def _cell_body(col: int, row: int, plan: Drawing,
                links: dict[Cell, Link],
-               marks: dict[Cell, Element]) -> str:
+               marks: dict[Cell, Element],
+               seen: dict[Cell, Element]) -> str:
     """Return the inside of one cell: everything that is not a wall.
 
     The middle, where a mark or the path stands, and a stretch either
@@ -396,23 +405,29 @@ def _cell_body(col: int, row: int, plan: Drawing,
     middle = cell_width // 2
     sides, element = links.get(cell, (0, None))
     return (_path_run(middle, skin, element if sides & Direction.W else None)
-            + _cell_centre(skin, cell, marks, links)
+            + _cell_centre(skin, cell, marks, links, seen)
             + _path_run(cell_width - middle - 1, skin,
                         element if sides & Direction.E else None))
 
 
 def _cell_centre(skin: TerminalSkin, cell: Cell,
                  marks: dict[Cell, Element],
-                 links: dict[Cell, Link]) -> str:
+                 links: dict[Cell, Link],
+                 seen: dict[Cell, Element]) -> str:
     """Return the character in the middle of a cell.
 
-    A mark beats the path, and the path beats the floor.
+    A mark beats the path, the path beats a cell the search went
+    through, and that beats the floor. The order is the point: every
+    cell of a route was searched first, so a search drawn over the
+    route would rub it out.
     """
     if cell in marks:
         return paint(marks[cell].symbol, marks[cell])
     if cell in links:
         sides, element = links[cell]
         return paint(element.piece(sides), element)
+    if cell in seen:
+        return paint(seen[cell].symbol, seen[cell])
     return paint(skin.floor.symbol, skin.floor)
 
 
@@ -530,6 +545,24 @@ def mark_cells(maze: Maze, plan: Drawing,
     return marks
 
 
+def seen_cells(plan: Drawing, skin: TerminalSkin) -> dict[Cell, Element]:
+    """What a cell the search has been through looks like.
+
+    One element per front, in the order the fronts are given, so the
+    two halves of a search from both ends are told apart the same way
+    two routes are. A cell claimed by more than one front keeps the
+    first that reached it.
+    """
+    seen: dict[Cell, Element] = {}
+    if not skin.seen:
+        return seen
+    for index, front in enumerate(plan.visited):
+        element = skin.seen[index % len(skin.seen)]
+        for cell in front:
+            seen.setdefault(cell, element)
+    return seen
+
+
 def canvas(body: Sequence[str], plan: Drawing, skin: TerminalSkin,
            columns: int) -> str:
     """Set the drawn maze in its canvas: title above, messages below.
@@ -596,7 +629,8 @@ def render(maze: Maze, drawing: Drawing | None = None) -> str:
 
     links = merge_paths(plan.paths, skin.paths, skin.meeting, maze.get_exit())
     marks = mark_cells(maze, plan, skin)
-    body = [maze_line(maze, char_row, plan, links, marks)
+    seen = seen_cells(plan, skin)
+    body = [maze_line(maze, char_row, plan, links, marks, seen)
             for char_row in range(2 * height + 1)]
     return canvas(body, plan, skin, columns)
 
@@ -678,7 +712,7 @@ def apply_wall_colour(drawing: Drawing, colour: str) -> None:
 # takes down, so it runs at the faster of the two; a route arriving is
 # meant to be followed by eye.
 CARVE_DELAY = 0.02
-PATH_DELAY = 0.05
+PATH_DELAY = 0.02
 
 
 @dataclass
@@ -725,7 +759,7 @@ def show_cursor() -> None:
 
 def animate(frames: Iterable[Maze | AnimationFrame],
             drawing: Drawing | None = None,
-            delay: float = 0.05, reveal: bool = True) -> None:
+            delay: float = 0.02, reveal: bool = True) -> None:
     """Draw one maze after another in place, as a moving picture.
 
     ``frames`` may be maze states, or ``AnimationFrame`` snapshots

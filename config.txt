@@ -27,5 +27,5 @@ PERFECT=True
 
 # Optional. Which generation algorithm to use.
 # Written so far: kruskal. Backtracker and division are coming.
-GEN_ALGORITHM=kruskal
+GEN_ALGORITHM=backtracker
 SOLVE_ALGORITHM=bfs

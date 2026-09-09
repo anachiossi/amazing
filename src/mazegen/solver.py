@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from .config import MazeConfig
-from .maze import Cell, Maze, Path
+from .maze import Cell, Maze, Path, Paths
 
 class MazeSolver(ABC):
 
@@ -22,6 +22,15 @@ class MazeSolver(ABC):
     def __init_subclass__(cls) -> None:
         if cls.name:
             MazeSolver.algorithms[cls.name] = cls
+
+    @abstractmethod
+    def get_visited(self) -> Paths:
+        """The sequences of cells an algorithm explored."""
+        pass
+
+    def get_shortest_path(self) -> Path:
+        """The shortest path from the entry to the exit, if any."""
+        return self._path
 
     @classmethod
     def from_config(cls, config: MazeConfig) -> "MazeSolver":
