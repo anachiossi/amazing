@@ -25,7 +25,6 @@ PERFECT=True
 # back every run; leave it out for a different maze each time.
 #SEED=42
 
-# Optional. Which generation algorithm to use.
-# Written so far: kruskal. Backtracker and division are coming.
+# Optional. Which generation algorithm to use: kruskal or backtracker.
 GEN_ALGORITHM=kruskal
 SOLVE_ALGORITHM=bfs
