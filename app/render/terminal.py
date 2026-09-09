@@ -674,6 +674,13 @@ def apply_wall_colour(drawing: Drawing, colour: str) -> None:
 # Animation: the same drawing, again, over itself.
 
 
+# How long one frame is held. Carving yields a frame for every wall it
+# takes down, so it runs at the faster of the two; a route arriving is
+# meant to be followed by eye.
+CARVE_DELAY = 0.02
+PATH_DELAY = 0.05
+
+
 @dataclass
 class AnimationFrame:
     """One animation snapshot: maze state together with its drawing."""

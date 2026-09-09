@@ -21,18 +21,20 @@ as an animation. The terminal keeps R, P, C and Q.
 import random
 import sys
 from collections.abc import Mapping
+from dataclasses import replace
 
 from app.config import MazeConfigError, read_config
 from app.render import gui
-from app.render.terminal import (WALL_COLOURS, Drawing, TooSmallTerminal,
+from app.render.terminal import (CARVE_DELAY, PATH_DELAY, WALL_COLOURS,
+                                 Drawing, TooSmallTerminal, animate,
                                  apply_wall_colour, colour_menu, read_key,
                                  redraw, show)
 from mazegen import (Direction, Maze, MazeConfig, MazeGenerator,
                      MazeSolver, Path)
 
-ACTION_BAR = "R  redraw   P  path   C  colour   Q  quit"
-
 TITLE = "A-MAZE-ING"
+
+ANIMATION = True
 
 NO_MLX = ("this build has no MiniLibX: run ./mlx/init-mlx.sh to install "
           "it, or leave --gui out and draw the maze in the terminal")
@@ -45,6 +47,12 @@ ARROW = {
     "up": Direction.N,
     "down": Direction.S,
 }
+
+
+def action_bar(animating: bool) -> str:
+    """The action bar for the terminal."""
+    state = "on" if animating else "off"
+    return f"R  redraw   P  path   C  colour   Q  quit   A  animate ({state})"
 
 
 def moved_entry(maze: Maze, key: str) -> tuple[int, int] | None:
@@ -101,45 +109,61 @@ def write_out(maze: Maze, route: Path, output_file: str) -> None:
 
 
 def message_for(drawing: Drawing, config: MazeConfig,
-                algorithm: str, solver: str) -> list[str]:
+                algorithm: str, solver: str,
+                animating: bool) -> list[str]:
     """The lines under the maze: how it was made, and the keys.
 
     A short window gives these up from the top, so the order is the
     order they can be lost in: what ``describes`` says first goes
     first, and the keys are never given up at all.
     """
-    return [*describes(config, algorithm, solver),
-            f"{drawing.cell_width} wide",
-            ACTION_BAR]
+    lines = describes(config, algorithm, solver)
+    lines.append(f"{drawing.cell_width} wide")
+    lines.append(action_bar(animating))
+    return lines
 
 
 def in_terminal(config: MazeConfig, generator: MazeGenerator,
                 solver: MazeSolver, output_file: str) -> int:
     """Draw the maze in the terminal, and run until the user quits."""
+    if generator.config.seed is None:
+        generator.config.seed = random.randrange(1 << 30)
     maze = generator.generate()
     path = solver.solve(maze)
     write_out(maze, path, output_file)
 
+    animating = ANIMATION
     drawing = Drawing(title=TITLE)
     drawing.message = message_for(
-        drawing, config, generator.name, solver.name)
+        drawing, config, generator.name, solver.name, animating)
 
     try:
         if not sys.stdin.isatty():
             show(maze, drawing)
             return 0
+        if animating:
+            animate(generator.carve(), replace(drawing, paths=()),
+                    delay=CARVE_DELAY)
+            maze = generator.maze
 
         while True:
             drawing.message = message_for(
-                drawing, config, generator.name, solver.name)
+                drawing, config, generator.name, solver.name, animating)
             redraw(maze, drawing)
 
             key = read_key()
+            if key in ("a", "A"):
+                animating = not animating
             if key in ("q", "Q", "\x03", "\x1b"):
                 break
             if key in ("r", "R"):
                 generator.config.seed = random.randrange(1 << 30)
-                maze = generator.generate()
+                if animating:
+                    animate(generator.carve(), replace(drawing, paths=()),
+                            delay=CARVE_DELAY)
+                    maze = generator.maze
+                else:
+                    maze = generator.generate()
                 # A new maze is a new way through it, so the route is
                 # asked for again whether or not it is on screen: turning
                 # it on later would otherwise draw the old maze's path.
@@ -152,6 +176,8 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
                     drawing.paths = ()
                 else:
                     drawing.paths = (path,)
+                    if animating:
+                        animate((maze,), drawing, delay=PATH_DELAY)
             if key in ("c", "C"):
                 print(colour_menu(maze, drawing))
                 choice = read_key()
