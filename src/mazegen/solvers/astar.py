@@ -28,7 +28,6 @@ def manhattan(a: Cell, b: Cell) -> int:
 # This is the approximation used to estimate distance.
 h = manhattan
 
-
 @dataclass
 class Side:
     """All data structured required by each side of the search"""
@@ -56,6 +55,10 @@ class BidirectionalAStar(MazeSolver):
     """Bidirectional A*: a heuristic, aimed from both ends at once."""
 
     name = "astar"
+
+    def get_visited(self) -> Paths:
+        # TODO: here we're losing the sequence but its ok for now
+        return (tuple(self.fwd.closed), tuple(self.bwd.closed),)
 
     @staticmethod
     def _new_side(root: Cell, goal: Cell) -> Side:
