@@ -9,15 +9,6 @@ CONFIG  := config.txt
 # Python is never touched and a checkout only needs "make".
 VENV    := .venv
 VPYTHON := $(VENV)/bin/python
-# MiniLibX ships as a wheel of its own and is built into its own
-# virtualenv by mlx/init-mlx.sh. The package under src/ is reached from
-# there with PYTHONPATH rather than installed a second time.
-MLXVENV    := mlx/venv
-MLXPYTHON  := $(MLXVENV)/bin/python
-# Which renderer "make run" opens: gui for a window, or terminal.
-# "?=" so that RENDER=terminal works from the environment as well as
-# on the command line.
-RENDER  ?= gui
 # Written once the dependencies are in: the other targets depend on it,
 # so they install what they need the first time and skip it afterwards.
 STAMP   := $(VENV)/.installed
@@ -73,35 +64,10 @@ $(STAMP): pyproject.toml
 	$(VPYTHON) -m pip install -e .[dev]
 	touch $(STAMP)
 
-# The same program either way; RENDER only says which renderer opens
-# it. The two are run from different virtualenvs, which is why the
-# rule is written twice rather than once with a flag: the terminal one
-# runs from $(VENV), which any target here can build, and the window
-# one from the MiniLibX venv, which only mlx/init-mlx.sh can build. So
-# $(VENV) is a prerequisite only of the renderer that uses it.
-ifeq ($(RENDER),gui)
-
-# src/ is put on the path so mazegen is found from the other venv,
-# where the package itself was never installed.
-run:
-	@[ -x $(MLXPYTHON) ] || { \
-	  printf 'no MiniLibX yet: run ./mlx/init-mlx.sh first\n' >&2; exit 1; }
-	PYTHONPATH=src $(MLXPYTHON) $(MAIN) $(CONFIG) --gui
-
-else ifeq ($(RENDER),terminal)
-
+# The terminal is the renderer, so "run" is one rule again: it draws
+# the maze from $(VENV), which any target here can build.
 run: $(STAMP)
 	$(VPYTHON) $(MAIN) $(CONFIG)
-
-else
-
-# A misspelt renderer is refused rather than quietly given a window or
-# a terminal, since either would look like the spelling had worked.
-run:
-	@printf 'RENDER must be terminal or gui, not %s\n' '$(RENDER)' >&2
-	@exit 1
-
-endif
 
 debug: $(STAMP)
 	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)
@@ -128,8 +94,7 @@ lint: $(STAMP)
 clean:
 	rm -rf .mypy_cache .pytest_cache build dist *.egg-info
 	rm -f mazegen-*.whl mazegen-*.tar.gz
-	find . -type d -name __pycache__ -not -path "./mlx/*" \
-	      -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 # The virtualenv is rebuilt by any target that needs it, so removing it
 # is safe; kept apart from clean because rebuilding costs a download.

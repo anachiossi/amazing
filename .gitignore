@@ -9,7 +9,6 @@ __pycache__/
 # Virtual environments
 venv/
 .venv/
-mlx/venv/
 
 # Build artifacts. The wheel itself is committed: the subject asks for
 # a pip-installable mazegen-* file at the root of the repository.

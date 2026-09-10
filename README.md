@@ -4,9 +4,7 @@
 
 This project is all about mazes, generating mazes and computing
 shortes paths within mazes. Every maze generated carries a block of
-closed cells spelling **42**. In terms of visualization, both the
-terminal as well as the GUI option are supported. The GUI option uses
-the MiniLibX library.
+closed cells spelling **42**. The maze is drawn in the terminal.
 
 ## Instructions
 
@@ -15,15 +13,13 @@ the following makefile commands
 
 ```bash
 make install
-make run RENDER=terminal
-make run RENDER=gui 
+make run
 ```
 
 You can also run the project directly as follows
 
 ```bash
-python3 a_maze_ing.py config.txt # terminal mode
-python3 a_maze_ing.py config.txt --gui # GUI mode
+python3 a_maze_ing.py config.txt
 ```
 
 ## Configuration file
@@ -65,7 +61,6 @@ maze.save("maze.txt", path)
 
 ## Advanced features
 
-- Support for both terminal and GUI
 - Rendering for both generation and solving animation
 - Multiple algorithm for generation and solving
 
