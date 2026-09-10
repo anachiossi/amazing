@@ -67,7 +67,7 @@ $(STAMP): pyproject.toml
 # The terminal is the renderer, so "run" is one rule again: it draws
 # the maze from $(VENV), which any target here can build.
 run: $(STAMP)
-	$(VPYTHON) $(MAIN) $(CONFIG)
+	@$(VPYTHON) $(MAIN) $(CONFIG) || true
 
 debug: $(STAMP)
 	$(VPYTHON) -m pdb $(MAIN) $(CONFIG)
