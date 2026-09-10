@@ -187,18 +187,7 @@ class MazeGenerator(ABC):
     # - _loosen() makes sure there are at least two paths from entry to exit.
 
     def _braid(self) -> Iterator[Maze]:
-        """Open a wall at each dead-end, so the maze has loops.
-
-        A dead-end is a cell you can only leave the way you came in.
-        Opening one more of its walls joins it to a neighbour it was
-        not joined to, and that is a loop.
-
-        Local, one cell at a time: it never looks at the entry or the
-        exit. That is why ``_loosen`` follows it.
-
-        Recursive division overrides this to do nothing — it punches
-        two gaps per wall as it runs, so the loops are already there.
-        """
+        """Open a wall at each dead-end, so the maze has loops."""
         for cell in self.maze.dead_ends():
             col, row = cell
             shut = [side for side in self.maze.closed_walls(col, row)
@@ -208,23 +197,7 @@ class MazeGenerator(ABC):
                 yield self.maze
 
     def _loosen(self) -> Iterator[Maze]:
-        """Open walls until no single one can cut the entry from the exit.
-
-        ``_braid`` leaves no dead-ends, which is not the same as leaving
-        two ways across: the loops it makes can all sit off to one side
-        while every route still crosses one shared passage. Closing that
-        passage would strand the exit, so there is only one route, and
-        the config file promised two.
-
-        A passage like that splits the maze in two when it is taken
-        away. Any other wall standing between those two halves is a way
-        round it, so opening one means the maze can no longer be cut in
-        one place.
-
-        Written the obvious way — every passage tried in turn — which is
-        O(passages x search). The linear way is to look for bridges in
-        one pass; this stays as the version that is plainly right.
-        """
+        """Open walls until no single one can cut the entry from the exit."""
         while True:
             chokes = self._choke_points()
             if not chokes:
@@ -243,11 +216,59 @@ class MazeGenerator(ABC):
     # Questions about the planned ends
 
     def _choke_points(self) -> list[Edge]:
-        """Passages every route from entry to exit has to use."""
-        entry_col, entry_row = self.config.entry_cell
-        return [edge for edge in self.maze.open_passages()
-                if self.config.exit_cell not in self.maze.region_of(
-                    entry_col, entry_row, banned=edge)]
+        """Passages every route from entry to exit has to use.
+
+        The bridges of the open-passage graph that separate the two
+        ends, found in one depth-first walk (Tarjan). """
+        maze = self.maze
+        entry = self.config.entry_cell
+        exit_cell = self.config.exit_cell
+        if entry == exit_cell:
+            return []
+
+        # disc: when a cell was first reached. low: the earliest disc
+        # anything in its subtree can climb back to, along one passage
+        # that is not the one it came down.
+        disc: dict[Cell, int] = {entry: 0}
+        low: dict[Cell, int] = {entry: 0}
+        parent: dict[Cell, Cell | None] = {entry: None}
+        clock = 1
+        chokes: list[Edge] = []
+        # Iterative, so a long corridor cannot blow the stack. Each
+        # frame keeps the neighbours left to try for that cell.
+        stack: list[tuple[Cell, Iterator[tuple[Cell, Direction]]]] = [
+            (entry, iter(maze.passages(*entry))),
+        ]
+
+        while stack:
+            cell, neighbours = stack[-1]
+            try:
+                other, _side = next(neighbours)
+            except StopIteration:
+                stack.pop()
+                above = parent[cell]
+                if above is None:
+                    continue
+                low[above] = min(low[above], low[cell])
+                # Nothing under `cell` reaches above `above`, so the
+                # passage between them is a bridge; and everything
+                # discovered while `cell` was open is its subtree, so
+                # the exit being in that window means the bridge cuts
+                # the entry from the exit rather than something else.
+                if (low[cell] > disc[above] and exit_cell in disc
+                        and disc[cell] <= disc[exit_cell] < clock):
+                    chokes.append(frozenset((above, cell)))
+                continue
+            if other == parent[cell]:
+                continue
+            if other in disc:
+                low[cell] = min(low[cell], disc[other])
+                continue
+            parent[other] = cell
+            disc[other] = low[other] = clock
+            clock += 1
+            stack.append((other, iter(maze.passages(*other))))
+        return chokes
 
     def _closed_across(self, near: Cells
                        ) -> list[tuple[Cell, Direction]]:
