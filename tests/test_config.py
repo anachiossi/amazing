@@ -179,10 +179,25 @@ class TestSizeLimits(MazeConfigTest):
         self.assert_rejected(VALID.replace("HEIGHT=15", "HEIGHT=99999"))
 
     def test_smallest_accepted_maze(self) -> None:
-        text = ("WIDTH=2\nHEIGHT=1\nENTRY=0,0\nEXIT=1,0\n"
+        text = ("WIDTH=11\nHEIGHT=9\nENTRY=0,0\nEXIT=10,8\n"
                 "OUTPUT_FILE=maze.txt\nPERFECT=True\n")
         config = self.load(text)
-        self.assertEqual((config.width, config.height), (2, 1))
+        self.assertEqual((config.width, config.height), (11, 9))
+
+    def test_too_small_for_the_42(self) -> None:
+        text = ("WIDTH=2\nHEIGHT=1\nENTRY=0,0\nEXIT=1,0\n"
+                "OUTPUT_FILE=maze.txt\nPERFECT=True\n")
+        self.assertIn("42", self.assert_rejected(text))
+
+    def test_one_column_short_for_the_42(self) -> None:
+        text = ("WIDTH=10\nHEIGHT=9\nENTRY=0,0\nEXIT=9,8\n"
+                "OUTPUT_FILE=maze.txt\nPERFECT=True\n")
+        self.assertIn("42", self.assert_rejected(text))
+
+    def test_one_row_short_for_the_42(self) -> None:
+        text = ("WIDTH=11\nHEIGHT=8\nENTRY=0,0\nEXIT=10,7\n"
+                "OUTPUT_FILE=maze.txt\nPERFECT=True\n")
+        self.assertIn("42", self.assert_rejected(text))
 
 
 class TestEntryAndExit(MazeConfigTest):

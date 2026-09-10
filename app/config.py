@@ -1,6 +1,6 @@
 """Configuration file reading."""
 
-from mazegen import Cell, MazeConfig
+from mazegen import Cell, MazeConfig, forty_two
 
 # The maze sizes the program agrees to draw. The subject sets no
 # ceiling; this one is here so that a slip like WIDTH=99999 is refused
@@ -58,6 +58,15 @@ def _check(width: int, height: int, entry: Cell, exit_cell: Cell) -> None:
                 f"{name} must be between {MIN_SIZE} and "
                 f"{MAX_SIZE}, got {size}"
             )
+    # The subject asks every maze to carry the "42". A maze with no
+    # room for it is refused here rather than drawn without it: the
+    # library still builds one that small, but the program will not.
+    if not forty_two.fits(width, height):
+        raise MazeConfigError(
+            f"a {width}x{height} maze has no room for the 42: "
+            f"WIDTH must be at least {forty_two.MIN_WIDTH} and "
+            f"HEIGHT at least {forty_two.MIN_HEIGHT}"
+        )
     for name, (col, row) in (("ENTRY", entry), ("EXIT", exit_cell)):
         if not (0 <= col < width and 0 <= row < height):
             raise MazeConfigError(

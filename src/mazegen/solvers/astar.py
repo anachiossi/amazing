@@ -28,6 +28,7 @@ def manhattan(a: Cell, b: Cell) -> int:
 # This is the approximation used to estimate distance.
 h = manhattan
 
+
 @dataclass
 class Side:
     """All data structured required by each side of the search"""

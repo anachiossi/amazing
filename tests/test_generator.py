@@ -3,7 +3,7 @@
 import time
 import unittest
 
-from mazegen import Direction, Maze, MazeConfig, MazeGenerator
+from mazegen import Direction, Edge, Maze, MazeConfig, MazeGenerator
 
 # TODO: corridor constraint.
 
@@ -41,7 +41,7 @@ class MazeConfigTest(unittest.TestCase):
         self.assertIn("exit", str(caught.exception))
 
 
-def _brute_chokes(generator: MazeGenerator) -> set:
+def _brute_chokes(generator: MazeGenerator) -> set[Edge]:
     """The old search: one region walk per open passage."""
     entry = generator.config.entry_cell
     exit_cell = generator.config.exit_cell

@@ -5,6 +5,7 @@ from typing import Any
 from .config import MazeConfig
 from .maze import Cell, Maze, Path, Paths
 
+
 class MazeSolver(ABC):
 
     algorithms: dict[str, type["MazeSolver"]] = {}
