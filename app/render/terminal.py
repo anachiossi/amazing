@@ -154,8 +154,8 @@ STANDARD_SKIN = TerminalSkin(
     char1=Element("இ", ink=rainbow.ink("cadmium")),
     char2=Element("&", ink=rainbow.ink("flamingo")),
     forty_two=Element("ဩ", ink=rainbow.ink("robin")),
-    seen=(Element("✓", ink=rainbow.ink("glacier")),
-          Element("✓", ink=rainbow.ink("lilac"))),
+    seen=(Element("✱", ink=rainbow.ink("glacier")),
+          Element("✱", ink=rainbow.ink("lilac"))),
 )
 
 FRAME = Frame()

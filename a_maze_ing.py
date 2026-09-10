@@ -79,6 +79,10 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
                 break
             if key in ("r", "R"):
                 generator.config.seed = random.randrange(1 << 30)
+                # Cleared before the carve, not after it: the frames
+                # below are drawn from this same drawing, and a search
+                # left in it marks cells of a grid being replaced.
+                drawing.visited = ()
                 if animating:
                     animate(generator.carve(), replace(drawing, paths=()),
                             delay=CARVE_DELAY, every=CARVE_EVERY)
