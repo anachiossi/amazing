@@ -7,12 +7,12 @@
 # HEIGHT cannot go below 9 — the "42" pattern needs that many rows.
 # A bigger window takes a bigger maze; too small a one is refused with
 # a message rather than drawn wrong.
-WIDTH=30
-HEIGHT=30
+WIDTH=18
+HEIGHT=9
 
 # Entry and exit, written as x,y — that is column,row
 ENTRY=0,0
-EXIT=29,29
+EXIT=17,8
 
 # Where the generated maze is written
 OUTPUT_FILE=maze.txt

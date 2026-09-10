@@ -1,47 +1,55 @@
-<!-- STUB — every section below still has to be written. -->
-
-*This project has been created as part of the 42 curriculum by <login1>, <login2>.*
+*This project has been created as part of the 42 curriculum by anade-mo, ltamiano.*
 
 # A-Maze-ing
 
-> **STUB.** Headings follow the structure the subject requires. Nothing
-> below is written yet.
-
-## Description
-
-TODO: what the project is, its goal, a short overview.
+This project is all about mazes, generating mazes and computing
+shortes paths within mazes. Every maze generated carries a block of
+closed cells spelling **42**. In terms of visualization, both the
+terminal as well as the GUI option are supported. The GUI option uses
+the MiniLibX library.
 
 ## Instructions
 
-TODO: installation, how to run, how to run the tests.
+To run the project it is required to have python 3.10 or newer. Run
+the following makefile commands
 
 ```bash
-make install     # dependencies + editable install of mazegen
-make run         # python3 a_maze_ing.py config.txt
-make test        # unit tests
-make lint        # flake8 + mypy
+make install
+make run RENDER=terminal
+make run RENDER=gui 
+```
+
+You can also run the project directly as follows
+
+```bash
+python3 a_maze_ing.py config.txt # terminal mode
+python3 a_maze_ing.py config.txt --gui # GUI mode
 ```
 
 ## Configuration file
 
-TODO: the complete structure and format of config.txt — mandatory keys
-(WIDTH, HEIGHT, ENTRY, EXIT, OUTPUT_FILE, PERFECT), optional keys
-(SEED, ALGORITHM), the comment syntax, and the coordinate convention.
+TODO
 
-## The generation algorithm
+## Maze Generation Algorithms
 
-TODO: which algorithm was chosen.
+TODO
 
-## Why this algorithm
+## Shortest Path Algorithms
 
-TODO: the reasoning behind the choice, and what was rejected.
+TODO
 
-## Reusable module
+## The mazegen module
+
+The library can be used to generate a maze structure and compute the
+shortest path and it is independent from the app graphical aspect. It
+can be installed as follows.
 
 ```bash
 make build
 pip install mazegen-1.0.0-py3-none-any.whl
 ```
+
+An example of using the library.
 
 ```python
 from mazegen import MazeConfig, MazeGenerator, MazeSolver
@@ -57,23 +65,14 @@ maze.save("maze.txt", path)
 
 ## Advanced features
 
-TODO: multiple algorithms, display options, bonuses — or remove this
-section if none are implemented.
+- Support for both terminal and GUI
+- Rendering for both generation and solving animation
+- Multiple algorithm for generation and solving
 
 ## Team and project management
 
-TODO:
-
-- the role of each team member
-- the planning that was anticipated, and how it evolved
-- what worked well and what could be improved
-- which specific tools were used
+TODO
 
 ## Resources
 
-TODO: classic references on maze generation — documentation, articles,
-tutorials.
-
-TODO: how AI was used — for which tasks and which parts of the project.
-This is required by the subject, and it is easier to write while the
-work is still fresh than to reconstruct later.
+TODO
