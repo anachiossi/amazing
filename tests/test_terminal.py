@@ -12,6 +12,7 @@ the cases stay readable.
 """
 
 import contextlib
+import dataclasses
 import io
 import os
 import random
@@ -30,8 +31,8 @@ from app.render.terminal import (CELL_WIDTH, FRAME, STANDARD_SKIN,
                                  drawing_size, maze_junction, maze_wall_above,
                                  maze_wall_left, merge_paths, paint,
                                  path_frames, path_sides,
-                                 redraw, render, show, show_cursor,
-                                 TooSmallTerminal)
+                                 redraw, render, seen_cells, show,
+                                 show_cursor, TooSmallTerminal)
 
 SIDES = (Direction.N, Direction.E, Direction.S, Direction.W)
 
@@ -460,6 +461,78 @@ class MarkTest(TerminalTest):
                     Maze(2, 2, exit=cell)
 
 
+class VisitedTest(TerminalTest):
+    """Where the search went, under everything else in the cell."""
+
+    def dot(self, front: int = 0) -> str:
+        """The symbol a cell of that search front is drawn with."""
+        return STANDARD_SKIN.seen[front].symbol
+
+    def test_a_visited_cell_is_marked(self) -> None:
+        """A cell the search went through is no longer bare floor."""
+        lines = self.lines(Maze(3, 2), Drawing(visited=[[(1, 0), (2, 1)]]))
+        for col, row in ((1, 0), (2, 1)):
+            char_row, char_col = self.middle(col, row)
+            self.assertEqual(lines[char_row][char_col], self.dot())
+
+    def test_a_cell_left_alone_stays_floor(self) -> None:
+        """Only the cells given are marked, and nothing else is."""
+        lines = self.lines(Maze(3, 2), Drawing(visited=[[(1, 0)]]))
+        char_row, char_col = self.middle(0, 0)
+        self.assertEqual(lines[char_row][char_col],
+                         STANDARD_SKIN.floor.symbol)
+
+    def test_a_drawing_with_no_search_has_no_dots(self) -> None:
+        """A drawing that was never solved looks as it always did."""
+        drawing = "\n".join(self.lines(self.random_maze(6, 4)))
+        self.assertNotIn(self.dot(), drawing)
+
+    def test_the_path_is_drawn_over_its_own_search(self) -> None:
+        """Every cell of a route was searched first, so the route wins.
+
+        The other way round the search would rub out the answer it
+        was looking for.
+        """
+        maze = self.open_maze(3, 1)
+        route = [(0, 0), (1, 0), (2, 0)]
+        lines = self.lines(maze, Drawing(paths=[route], visited=[route]))
+        char_row, char_col = self.middle(1, 0)
+        self.assertNotEqual(lines[char_row][char_col], self.dot())
+        self.assertIn(lines[char_row][char_col],
+                      STANDARD_SKIN.paths[0].joints)
+
+    def test_the_ends_are_drawn_over_the_search(self) -> None:
+        """A mark beats the search, the same way it beats the path."""
+        maze = Maze(3, 2, entry=(0, 0), exit=(2, 1))
+        lines = self.lines(maze, Drawing(visited=[[(0, 0), (2, 1)]]))
+        for cell, symbol in (((0, 0), STANDARD_SKIN.entry.symbol),
+                             ((2, 1), STANDARD_SKIN.exit.symbol)):
+            char_row, char_col = self.middle(cell[0], cell[1])
+            self.assertEqual(lines[char_row][char_col], symbol)
+
+    def test_each_front_is_drawn_in_its_own_element(self) -> None:
+        """Two searches from two ends are told apart, like two routes."""
+        skin = dataclasses.replace(
+            STANDARD_SKIN, seen=(Element("a"), Element("b")))
+        lines = self.lines(Maze(3, 1),
+                           Drawing(visited=[[(0, 0)], [(2, 0)]], skin=skin))
+        for cell, symbol in ((((0, 0)), "a"), (((2, 0)), "b")):
+            char_row, char_col = self.middle(cell[0], cell[1])
+            self.assertEqual(lines[char_row][char_col], symbol)
+
+    def test_a_cell_reached_by_both_keeps_the_first(self) -> None:
+        """Where two fronts meet, the one that got there first shows."""
+        skin = dataclasses.replace(
+            STANDARD_SKIN, seen=(Element("a"), Element("b")))
+        seen = seen_cells(Drawing(visited=[[(1, 0)], [(1, 0)]]), skin)
+        self.assertEqual(seen[(1, 0)].symbol, "a")
+
+    def test_a_skin_with_no_element_draws_nothing(self) -> None:
+        """A skin that says nothing about the search shows none of it."""
+        skin = dataclasses.replace(STANDARD_SKIN, seen=())
+        self.assertEqual(seen_cells(Drawing(visited=[[(1, 0)]]), skin), {})
+
+
 class FrameTest(TerminalTest):
     """The canvas around the maze, and the text in it."""
 
@@ -698,6 +771,36 @@ class AnimationTest(TerminalTest):
         self.assertEqual(printed.count("\033[H"), len(mazes) + 1)
         for maze in mazes:
             self.assertIn(overwritten(render(maze)), printed)
+
+    def test_one_frame_in_every_so_many_is_drawn(self) -> None:
+        """A long carve is made watchable by showing less of it.
+
+        Drawing a frame costs far more than making one, so the frames
+        that are skipped still happen — they are simply not drawn.
+        """
+        mazes = [self.random_maze(2, 2, seed) for seed in range(10)]
+        printed = self.capture(lambda: animate(mazes, delay=0.0, every=3))
+        # Frames 0, 3, 6 and 9, plus the one wipe before the first.
+        self.assertEqual(printed.count("\033[H"), 4 + 1)
+
+    def test_the_last_frame_is_drawn_whatever_the_count(self) -> None:
+        """What is left on the screen has to be the finished picture."""
+        mazes = [self.random_maze(2, 2, seed) for seed in range(9)]
+        printed = self.capture(lambda: animate(mazes, delay=0.0, every=3))
+        # Frames 0, 3 and 6 by the count, then 8 because it is last.
+        self.assertEqual(printed.count("\033[H"), 4 + 1)
+        self.assertIn(overwritten(render(mazes[-1])), printed)
+
+    def test_one_in_every_one_is_every_frame(self) -> None:
+        """The default counts nothing out."""
+        mazes = [self.random_maze(2, 2, seed) for seed in range(4)]
+        printed = self.capture(lambda: animate(mazes, delay=0.0, every=1))
+        self.assertEqual(printed.count("\033[H"), len(mazes) + 1)
+
+    def test_a_frame_in_fewer_than_one_is_refused(self) -> None:
+        """Nothing is drawn at all, rather than every frame twice."""
+        with self.assertRaises(ValueError):
+            animate([Maze(2, 2)], delay=0.0, every=0)
 
     def test_a_frame_can_carry_its_own_drawing(self) -> None:
         """A snapshot is a maze and what to draw on it, together."""

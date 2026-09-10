@@ -286,7 +286,11 @@ class Maze:
         # would obtain a Direction value such as, for example,
         # Direction.N, which is not stricly speaking a 0/1 value.
         #
-        return bool(self.grid[col][row] & direction)
+        # int() on both sides: grid holds Direction, an IntFlag, and
+        # ``Direction & Direction`` builds a fresh enum member every
+        # time. Plain ints answer the same question far faster, and
+        # this is the most asked question in the program.
+        return bool(int(self.grid[col][row]) & int(direction))
 
     def wall_count(self, col: int, row: int) -> int:
         """How many of the cell's four walls are closed, 0 to 4.
