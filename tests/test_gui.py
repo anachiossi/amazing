@@ -16,9 +16,9 @@ from mazegen import Direction, Maze
 
 from app.render.gui import (DOWN, ESCAPE, FOOT, HEAD, KEYS, LEFT, LINE, MARGIN,
                             MAX_CELL, MIN_CELL, RIGHT, STANDARD_SKIN, TAIL,
-                            TAIL_LINES, UP, Canvas, Layout, Scene, TooSmall,
-                            ascii_only, colour, draw, key_letter,
-                            path_prefixes, write_line)
+                            TAIL_LINES, UP, Canvas, Layout, MazeWindow,
+                            Playback, Scene, TooSmall, ascii_only, colour,
+                            draw, key_letter, path_prefixes, write_line)
 
 # A screen big enough that nothing has to be given up for it.
 ROOMY = (3000, 2000)
@@ -122,6 +122,12 @@ class LayoutTest(unittest.TestCase):
     def test_the_maze_starts_below_the_head(self) -> None:
         layout = Layout.fit(Maze(5, 5), ROOMY)
         self.assertEqual(layout.corner(0, 0)[1], HEAD)
+
+    def test_a_narrow_maze_is_centred_in_a_wider_window(self) -> None:
+        layout = Layout.fit(Maze(2, 2), ROOMY, min_width=800)
+        self.assertEqual(layout.window[0], 800)
+        left, _ = layout.corner(0, 0)
+        self.assertGreater(left, MARGIN)
 
     def test_the_centre_of_a_cell_is_inside_it(self) -> None:
         layout = Layout.fit(Maze(5, 5), ROOMY)
@@ -346,6 +352,68 @@ class SceneTest(unittest.TestCase):
         self.assertEqual(scene.path, ())
         self.assertEqual(scene.title, "")
         self.assertEqual(scene.message, ())
+
+
+def _window(scene: Scene) -> MazeWindow:
+    """A MazeWindow that never opens MiniLibX — only animation is used."""
+    window = MazeWindow.__new__(MazeWindow)
+    window.scene = scene
+    window.solver_anim = False
+    window.show_path = False
+    window._carving = False
+    return window
+
+
+class AnimationTest(unittest.TestCase):
+    """One iterator of frames: each next() updates the scene."""
+
+    def test_carve_shows_each_maze_then_the_finished_scene(self) -> None:
+        first, second = Maze(2, 1), Maze(2, 1)
+        finished = Scene(second, path=((0, 0),), title="done")
+        window = _window(Scene(Maze(2, 1)))
+        play = Playback(iter((first, second)), lambda maze: finished)
+        self.assertEqual(len(list(window._carve(play))), 3)
+        self.assertIs(window.scene, finished)
+        self.assertFalse(window._carving)
+
+    def test_empty_carve_finishes_the_maze_already_on_screen(self) -> None:
+        current = Maze(2, 1)
+        window = _window(Scene(current))
+        seen: list[Maze] = []
+
+        def finish(maze: Maze) -> Scene:
+            seen.append(maze)
+            return Scene(maze)
+
+        list(window._carve(Playback(iter(()), finish)))
+        self.assertEqual(seen, [current])
+
+    def test_carve_then_path_starts_empty_and_ends_whole(self) -> None:
+        maze = Maze(2, 1)
+        route = ((0, 0), (1, 0))
+        window = _window(Scene(maze))
+        window.solver_anim = True
+
+        def finish(current: Maze) -> Scene:
+            return Scene(current, path=route)
+
+        prefixes = []
+        for _ in window._carve(Playback(iter((maze,)), finish)):
+            prefixes.append(window.scene.path)
+        self.assertEqual(prefixes[0], ())
+        self.assertEqual(prefixes[-1], route)
+        self.assertTrue(window.show_path)
+        self.assertFalse(window._carving)
+
+    def test_reveal_path_grows_the_route(self) -> None:
+        route = ((0, 0), (1, 0), (1, 1))
+        window = _window(Scene(Maze(2, 2), path=route))
+        prefixes = []
+        for _ in window._reveal_path(route):
+            prefixes.append(window.scene.path)
+        self.assertEqual(prefixes[0], ())
+        self.assertEqual(prefixes[-1], route)
+        self.assertTrue(window.show_path)
 
 
 if __name__ == "__main__":

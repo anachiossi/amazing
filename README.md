@@ -6,7 +6,7 @@ This project is all about mazes, generating mazes and computing
 shortes paths within mazes. Every maze generated carries a block of
 closed cells spelling **42**. In terms of visualization, both the
 terminal as well as the GUI option are supported. The GUI option uses
-the MiniLibX library.
+the MiniLibX library (see [GUI and MiniLibX](#gui-and-minilibx)).
 
 ## Instructions
 
@@ -25,6 +25,48 @@ You can also run the project directly as follows
 python3 a_maze_ing.py config.txt # terminal mode
 python3 a_maze_ing.py config.txt --gui # GUI mode
 ```
+
+## GUI and MiniLibX
+
+The window renderer lives in `app/render/gui/`. It uses the Python
+MiniLibX wrapper (`from mlx import Mlx`). All drawing is rectangles
+written into one image buffer; MiniLibX only opens the window, hands
+over that buffer, blits the finished frame, and runs the event loop.
+
+- `draw.py` — the picture (layout, rectangles, colours)
+- `window.py` — MiniLibX (`Display`), keys, and animation
+- `font.py` — 5x7 glyphs, painted as rectangles too
+
+Install MiniLibX with `./mlx/init-mlx.sh` before GUI mode.
+
+### MiniLibX APIs used
+
+Connection and window
+
+- mlx_init()
+- mlx_get_screen_size(mlx_ptr)
+- mlx_new_window(mlx_ptr, width, height, title)
+- mlx_destroy_window(mlx_ptr, win_ptr)
+- mlx_release(mlx_ptr)
+
+Pixel buffer (MiniLibX "image")
+
+- mlx_new_image(mlx_ptr, width, height)
+- mlx_get_data_addr(img_ptr)
+- mlx_put_image_to_window(mlx_ptr, win_ptr, img_ptr, x, y)
+- mlx_do_sync(mlx_ptr)
+- mlx_destroy_image(mlx_ptr, img_ptr)
+
+Event loop and input
+
+- mlx_expose_hook(win_ptr, callback, param)
+- mlx_key_hook(win_ptr, callback, param)
+- mlx_hook(win_ptr, x_event, x_mask, callback, param)
+- mlx_loop_hook(mlx_ptr, callback, param)
+- mlx_do_key_autorepeatoff(mlx_ptr)
+- mlx_do_key_autorepeaton(mlx_ptr)
+- mlx_loop(mlx_ptr)
+- mlx_loop_exit(mlx_ptr)
 
 ## Configuration file
 
