@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point: ``python3 a_maze_ing.py config.txt``.
-
-This file is the glue between the parts that do not know each other:
-the configuration, the maze, and the renderer that draws it.
-
-The maze has no idea it will be looked at. The renderer knows the
-surface it draws on — how wide a cell can be, and how much room the
-whole thing takes — and it refuses a maze that cannot be drawn where
-it draws. What is left here is the one thing it cannot decide: what
-should happen when the answer is that the maze does not fit at all.
-
-The terminal answers R for a new maze, P for the path, C for colour,
-A for animation, and Q to leave.
-"""
+"""Entry point called with python3 a_maze_ing.py config.txt"""
 
 import random
 import sys
@@ -24,52 +11,24 @@ from app.render.terminal import (CARVE_DELAY, CARVE_EVERY, PATH_DELAY,
                                  Drawing, TooSmallTerminal, animate,
                                  apply_wall_colour, colour_menu, read_key,
                                  redraw, show)
-from mazegen import Maze, MazeConfig, MazeGenerator, MazeSolver, Path
+from mazegen import MazeConfig, MazeGenerator, MazeSolver
 
 TITLE = "A-MAZE-ING"
 
 ANIMATION = True
 
 
-def action_bar(animating: bool) -> str:
-    """The action bar for the terminal."""
-    state = "on" if animating else "off"
-    return f"R  redraw   P  path   C  colour   Q  quit   A  animate ({state})"
-
-
-def describes(config: MazeConfig, algorithm: str, solver: str) -> list[str]:
-    """What a reader cannot work out by looking at the drawing.
-
-    Which algorithms built and solved it, and how large it is: three
-    facts the maze itself does not write on the walls.
-    """
-    return [f"generation: {algorithm}",
-            f"solver: {solver}",
-            f"resolution: {config.width}x{config.height}"]
-
-
-def write_out(maze: Maze, route: Path, output_file: str) -> None:
-    """Write the maze the subject asks for, replacing the last file.
-
-    The grid, the ends and the shortest path: one file, the format
-    IV.5 names, so a later run overwrites rather than appends.
-    """
-    maze.save(output_file, route)
-
-
 def message_for(drawing: Drawing, config: MazeConfig,
                 algorithm: str, solver: str,
                 animating: bool) -> list[str]:
-    """The lines under the maze: how it was made, and the keys.
-
-    A short window gives these up from the top, so the order is the
-    order they can be lost in: what ``describes`` says first goes
-    first, and the keys are never given up at all.
-    """
-    lines = describes(config, algorithm, solver)
-    lines.append(f"{drawing.cell_width} wide")
-    lines.append(action_bar(animating))
-    return lines
+    state = "on" if animating else "off"
+    return [
+        f"generation: {algorithm}",
+        f"solver: {solver}",
+        f"resolution: {config.width}x{config.height}",
+        f"{drawing.cell_width} wide",
+        f"R  redraw   P  path   C  colour   Q  quit   A  animate ({state})",
+    ]
 
 
 def in_terminal(config: MazeConfig, generator: MazeGenerator,
@@ -79,7 +38,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
         generator.config.seed = random.randrange(1 << 30)
     maze = generator.generate()
     path = solver.solve(maze)
-    write_out(maze, path, output_file)
+    maze.save(output_file, path)
 
     animating = ANIMATION
     drawing = Drawing(title=TITLE)
@@ -117,7 +76,7 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
                 # asked for again whether or not it is on screen: turning
                 # it on later would otherwise draw the old maze's path.
                 path = solver.solve(maze)
-                write_out(maze, path, output_file)
+                maze.save(output_file, path)
                 if drawing.paths:
                     drawing.paths = (path,)
             if key in ("p", "P"):
@@ -154,8 +113,7 @@ def main() -> int:
         generator = MazeGenerator.from_config(config)
         solver = MazeSolver.from_config(config)
         return in_terminal(config, generator, solver, output_file)
-    except (MazeConfigError, ValueError, OSError,
-            TooSmallTerminal) as error:
+    except (MazeConfigError, ValueError, OSError, TooSmallTerminal) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 

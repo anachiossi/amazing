@@ -1,31 +1,26 @@
-# a_maze_ing — default configuration
-# One KEY=VALUE pair per line. Lines starting with # are ignored.
+# a_maze_ing default configuration
+# One KEY=VALUE pair per line.
+# Lines starting with # are ignored.
 
-# Maze size, in cells. This default is the largest that still draws
-# inside a standard 80x24 terminal: 18 cells wide is 77 columns, and
-# 9 rows is 24 lines once the title and the messages are counted.
-# HEIGHT cannot go below 9 — the "42" pattern needs that many rows.
-# A bigger window takes a bigger maze; too small a one is refused with
-# a message rather than drawn wrong.
-WIDTH=18
-HEIGHT=9
+# Maze size in cells. 
+WIDTH=30
+HEIGHT=30
 
-# Entry and exit, written as x,y — that is column,row
+# Entry and exit, written as x,y (col, row)
 ENTRY=0,0
-EXIT=17,8
+EXIT=29,29
 
-# Where the generated maze is written
 OUTPUT_FILE=maze.txt
 
-# True  : exactly one path between entry and exit, no loops
-# False : playable board with at least two independent routes
-PERFECT=True
+# True  -> exactly one path between entry and exit, no loops
+# False -> playable board with at least two independent routes
+PERFECT=False
 
-# Optional. SEED fixes the random generation so the same maze comes
-# back every run; leave it out for a different maze each time.
-#SEED=42
+# Fix random generation
+SEED=42
 
-# Optional. Which generation algorithm to use.
-# Written so far: kruskal. Backtracker and division are coming.
-GEN_ALGORITHM=backtracker
-SOLVE_ALGORITHM=bfs
+# Maze generation algorithm 
+GEN_ALGORITHM=division
+
+# Shortest path algorithm
+SOLVE_ALGORITHM=astar

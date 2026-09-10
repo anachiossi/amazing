@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from heapq import heappop, heappush
 
-from ..maze import Cell
+from ..maze import Cell, Paths
 from ..solver import MazeSolver
 
 
@@ -44,9 +44,7 @@ class Side:
     # Cell -> the cell it was reached from. None marks the root.
     parent: dict[Cell, None | Cell]
     # Cells settled for good, and so never to be expanded again.
-    closed: set[Cell]
-    # Every cell settled, in order, for the visualizer.
-    anim: list[Cell]
+    closed: dict[Cell, None]
     # Where this side is headed: the *other* side's root.
     goal: Cell
 
@@ -57,7 +55,6 @@ class BidirectionalAStar(MazeSolver):
     name = "astar"
 
     def get_visited(self) -> Paths:
-        # TODO: here we're losing the sequence but its ok for now
         return (tuple(self.fwd.closed), tuple(self.bwd.closed),)
 
     @staticmethod
@@ -69,8 +66,7 @@ class BidirectionalAStar(MazeSolver):
             frontier=[(0 + start_h, start_h, root)],
             g={root: 0},
             parent={root: None},
-            closed=set(),
-            anim=[root],
+            closed={},
             goal=goal,
         )
 
@@ -186,8 +182,7 @@ class BidirectionalAStar(MazeSolver):
             return None
 
         # At this point we know chepeast route from side entry to this cell
-        side.closed.add(cell)
-        side.anim.append(cell)
+        side.closed[cell] = None
 
         col, row = cell
         # One step on from a cell whose cost is settled, so it is the
