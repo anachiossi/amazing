@@ -7,15 +7,24 @@ from dataclasses import replace
 
 from app.config import MazeConfigError, read_config
 from app.render.terminal import (CARVE_DELAY, CARVE_EVERY, PATH_DELAY,
-                                 WALL_COLOURS,
+                                 SEEN_DELAY, SEEN_EVERY, WALL_COLOURS,
                                  Drawing, TooSmallTerminal, animate,
                                  apply_wall_colour, colour_menu, read_key,
-                                 redraw, show)
-from mazegen import MazeConfig, MazeGenerator, MazeSolver
+                                 redraw, seen_frames, show)
+from mazegen import MazeConfig, MazeGenerator, MazeSolver, Paths
 
 TITLE = "A-MAZE-ING"
 
 ANIMATION = True
+
+
+def searched(solver: MazeSolver, animating: bool) -> Paths:
+    """The cells the search went through, when they are wanted.
+
+    Only the animation draws them. With it off the route is shown on
+    its own, which is what P meant before there was a search to show.
+    """
+    return solver.get_visited() if animating else ()
 
 
 def message_for(drawing: Drawing, config: MazeConfig,
@@ -62,6 +71,10 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
             key = read_key()
             if key in ("a", "A"):
                 animating = not animating
+                # A route already on screen keeps matching what the
+                # action bar now says, rather than waiting for P.
+                if drawing.paths:
+                    drawing.visited = searched(solver, animating)
             if key in ("q", "Q", "\x03", "\x1b"):
                 break
             if key in ("r", "R"):
@@ -79,12 +92,26 @@ def in_terminal(config: MazeConfig, generator: MazeGenerator,
                 maze.save(output_file, path)
                 if drawing.paths:
                     drawing.paths = (path,)
+                    # The old maze's search would otherwise stay up,
+                    # marking cells of a grid that is gone.
+                    drawing.visited = searched(solver, animating)
             if key in ("p", "P"):
                 if drawing.paths:
                     drawing.paths = ()
+                    drawing.visited = ()
                 else:
+                    # Set before the route, so the animation below
+                    # draws the search under it from the first frame.
+                    drawing.visited = searched(solver, animating)
                     drawing.paths = (path,)
                     if animating:
+                        # The search spreads first and stays up; then
+                        # the route is drawn over the cells it came
+                        # from, which is the order they happened in.
+                        animate(seen_frames(maze, replace(drawing,
+                                                          paths=())),
+                                delay=SEEN_DELAY, every=SEEN_EVERY,
+                                reveal=False)
                         animate((maze,), drawing, delay=PATH_DELAY)
             if key in ("c", "C"):
                 print(colour_menu(maze, drawing))

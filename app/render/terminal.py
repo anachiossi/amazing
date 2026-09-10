@@ -154,8 +154,8 @@ STANDARD_SKIN = TerminalSkin(
     char1=Element("இ", ink=rainbow.ink("cadmium")),
     char2=Element("&", ink=rainbow.ink("flamingo")),
     forty_two=Element("ဩ", ink=rainbow.ink("robin")),
-    seen=(Element("·", ink=rainbow.ink("drab")),
-          Element("·", ink=rainbow.ink("dusk"))),
+    seen=(Element("✓", ink=rainbow.ink("glacier")),
+          Element("✓", ink=rainbow.ink("lilac"))),
 )
 
 FRAME = Frame()
@@ -733,6 +733,19 @@ PATH_DELAY = 0.02
 # every one of them is half a minute of watching a wall come down.
 CARVE_EVERY = 5
 
+# The search spreads over far fewer cells than a carve takes down
+# walls — a 20x15 is around two hundred against a thousand — so every
+# frame of it is drawn, and the spread is watched cell by cell.
+#
+# A frame of search costs about five milliseconds to draw, well under
+# the twenty a carve costs, so unlike CARVE_DELAY this one cannot be
+# left at nothing: the whole reveal would go by in a fifth of a
+# second. The pause is what paces it, and it is shorter than
+# PATH_DELAY because there are several times as many cells to get
+# through.
+SEEN_DELAY = 0.005
+SEEN_EVERY = 1
+
 
 @dataclass
 class AnimationFrame:
@@ -752,6 +765,24 @@ def path_frames(maze: Maze, drawing: Drawing) -> Iterable[AnimationFrame]:
     for end in range(length + 1):
         prefixes = tuple(path[:end] for path in drawing.paths)
         yield AnimationFrame(maze, replace(drawing, paths=prefixes))
+
+
+def seen_frames(maze: Maze, drawing: Drawing) -> Iterable[AnimationFrame]:
+    """Yield snapshots that spread the search one cell at a time.
+
+    ``path_frames`` over the other field. Every front grows together,
+    a cell each per frame, so a search running from both ends is seen
+    closing on itself rather than one side finishing before the other
+    starts.
+
+    The order is the solver's: whatever ``get_visited`` handed over is
+    replayed as it came. A solver that keeps its cells in a set has
+    nothing to replay, and its search simply arrives whole.
+    """
+    length = max((len(front) for front in drawing.visited), default=0)
+    for end in range(length + 1):
+        prefixes = tuple(front[:end] for front in drawing.visited)
+        yield AnimationFrame(maze, replace(drawing, visited=prefixes))
 
 
 def clear_screen() -> None:
