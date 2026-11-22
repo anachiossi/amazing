@@ -71,3 +71,8 @@ TODO
 ## Resources
 
 TODO
+
+## License
+
+MIT, see [LICENSE.md](LICENSE.md). It covers the whole repository,
+including the reusable `mazegen` package.
