@@ -1,34 +1,13 @@
-"""Minimalist rendering on terminal.
+"""Draw a maze in the terminal. The maze is read, never written.
 
-The maze is read, never written: asked for its size, its walls, its
-ends and its frozen cells. Line by line, top to bottom, left to right,
-appended to a string.
+A WIDTH x HEIGHT maze becomes 2 * HEIGHT + 1 alternating lines::
 
-A maze of WIDTH x HEIGHT becomes ``2 * HEIGHT + 1`` lines::
+    ┏━━━┳━━━━━━━┓   wall line: junctions and the walls above
+    ┃ E │       ┃   cell line: the walls beside, and the insides
+    ┗━━━┻━━━┻━━━┛   one last wall line closes the bottom
 
-    ┏━━━┳━━━━━━━┓      a wall line: junctions, and the walls above
-    ┃ E │       ┃      a cell line: walls beside the cells, and their
-    ┣━━━┿━━━┓   ┃                   insides
-    ┃       │  X┃
-    ┗━━━┻━━━┻━━━┛      one last wall line closes the bottom
-
-The border is drawn first, since the outside of a maze is always
-walled. Every wall left over stands between two cells, so each cell
-draws only its N and W sides: drawing all four would draw every wall
-twice, and the sides no cell draws are exactly the border::
-
-    ┌───┬───┐     A, B, C and D each draw their own N and W.
-    │ A │ B │
-    ├───┼───┤     B's E and D's S belong to no cell. They are the
-    │ C │ D │     border, drawn first.
-    └───┴───┘
-
-The maze sits in a canvas with a head for the title and a tail for
-messages. Colour is not optional: an ``Element`` is a symbol and its
-ink together, and ink only — one character holds one thing.
-
-A cell walled in on all four sides is drawn like any other; the "42"
-shows as the boxes it is made of.
+Each cell draws only its N and W sides, so no wall is drawn twice.
+The sides no cell draws are exactly the border, which is drawn first.
 """
 
 import re
@@ -38,32 +17,57 @@ import termios
 import textwrap
 import time
 import tty
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from typing import Iterable, Sequence
+from typing import Iterable, Iterator, Sequence
 
 import rainbow
 from mazegen import Cell, Direction, Maze, Path, Paths
 
-# What a cell on a path knows: the sides it links to, and the element
-# of the path that drew it.
+# A cell on a path: the sides it links to, and the element that drew it.
 Link = tuple[int, "JoinedElement"]
 
-# A cell is this many characters wide unless asked otherwise. Three,
-# because a terminal character is about twice as tall as it is wide:
+# Three, because a terminal character is twice as tall as it is wide;
 # at 1 a square maze comes out flattened.
 CELL_WIDTH = 3
 
 
+WALL_COLOURS = (
+    "chambray",
+    "vermilion",
+    "gamboge",
+    "peppermint",
+    "ultramarine",
+)
+
+
+# Frames a second, to cancel out what a frame costs to draw: a 30x30
+# takes some twenty milliseconds, a small one almost none, so without
+# this the first crawled while the second went by unseen.
+DEFAULT_FPS = 30
+MIN_FPS = 1
+MAX_FPS = 240
+
+# One carved wall in this many is drawn: a 30x30 carve yields around a
+# thousand frames, and showing every one is half a minute of watching.
+CARVE_EVERY = 1
+
+# A search touches far fewer cells than a carve takes down walls, so
+# every frame of it is drawn and the spread is watched cell by cell.
+SEEN_EVERY = 1
+
+
+class TooSmallTerminal(Exception):
+    """The window cannot hold the drawing of that maze."""
+
+
 @dataclass(frozen=True)
 class Element:
-    """A symbol, and the ink it is written in.
+    """A symbol and the ink it is written in.
 
-    ``ink`` is an ANSI code as it appears inside the escape sequence
-    that wraps the text: ``"38;5;N"`` writes the symbol in colour N
-    of the 256-colour palette. ``rainbow`` turns a name into one of
-    these, so nothing here is a bare number.
-
-    Empty ink means the terminal's own colour.
+    ``ink`` is the body of an ANSI escape — ``"38;5;N"`` for colour N
+    of the 256 palette — as ``rainbow`` builds it from a name. Empty
+    means the terminal's own colour.
     """
 
     symbol: str = " "
@@ -72,14 +76,12 @@ class Element:
 
 @dataclass(frozen=True)
 class JoinedElement(Element):
-    """The symbol depends on the neighbours.
+    """An element whose symbol depends on its neighbours.
 
-    Walls, borders and the path are all lines, so which piece to use
-    — ``─``, ``┐``, ``┼`` — is known only once the neighbours are.
-    ``joints`` holds the sixteen pieces, indexed by the sides they
-    reach towards with the bits ``Direction`` defines: N = 1, E = 2,
-    S = 4, W = 8. So index 10 is E | W, a horizontal line; index 0
-    touches nothing and is blank.
+    Walls, borders and paths are lines, so the piece to use — ``─``,
+    ``┐``, ``┼`` — is known only once the neighbours are. ``joints``
+    holds all sixteen, indexed by the sides reached with Direction's
+    bits (N=1, E=2, S=4, W=8): index 10 is E|W, a horizontal line.
     """
 
     joints: str = " " * 16
@@ -97,7 +99,7 @@ class JoinedElement(Element):
         return self.joints[sides]
 
     def straight(self, direction: Direction) -> str:
-        """What piece to use for a straight line in that direction?"""
+        """The piece for a straight line running that way."""
         if direction in (Direction.N, Direction.S):
             return self.joints[Direction.N | Direction.S]
         return self.joints[Direction.E | Direction.W]
@@ -114,11 +116,7 @@ class Frame:
 
 @dataclass(frozen=True)
 class TerminalSkin:
-    """A reusable set of elements.
-
-    A new look is a new instance of this class, with the same elements
-    but different symbols and colours.
-    """
+    """A whole look: one element per thing that can be drawn."""
 
     floor: Element
     wall: JoinedElement
@@ -129,8 +127,6 @@ class TerminalSkin:
     title: Element
     message: Element
     meeting: JoinedElement | None = None
-    char1: Element | None = None
-    char2: Element | None = None
     forty_two: Element | None = None
     seen: tuple[Element, ...] = ()
 
@@ -151,9 +147,7 @@ STANDARD_SKIN = TerminalSkin(
     exit=Element("⚑", ink=rainbow.ink("madder")),
     title=Element(ink=rainbow.ink("snow")),
     message=Element(ink=rainbow.ink("stone")),
-    char1=Element("இ", ink=rainbow.ink("cadmium")),
-    char2=Element("&", ink=rainbow.ink("flamingo")),
-    forty_two=Element("ဩ", ink=rainbow.ink("robin")),
+    forty_two=Element("◥", ink=rainbow.ink("robin")),
     seen=(Element("✱", ink=rainbow.ink("glacier")),
           Element("✱", ink=rainbow.ink("lilac"))),
 )
@@ -165,18 +159,13 @@ FRAME = Frame()
 class Drawing:
     """Everything a rendering needs to draw.
 
-    ``paths`` is a list of routes, drawn one element each; a single
-    search is a list of one. ``visited`` is the same shape and holds
-    what a solver went through on its way to them, one sequence per
-    search front — a route is drawn over its own search, never under
-    it. The two ends are not here — they are the maze's, and ``render``
-    reads them from it. ``skin`` left alone means the standard one.
+    ``paths`` is one sequence per route, ``visited`` one per search
+    front that found them; a route is drawn over its own search. The
+    two ends are the maze's, and ``render`` reads them from it.
     """
 
     paths: Paths = ()
     visited: Paths = ()
-    char1: Cell | None = None
-    char2: Cell | None = None
     title: str = ""
     message: Sequence[str] = ()
     skin: TerminalSkin | None = None
@@ -184,14 +173,13 @@ class Drawing:
     cell_width: int = CELL_WIDTH
 
     def drawn_with(self) -> TerminalSkin:
-        """The skin named, or the one every drawing gets by default."""
+        """The skin named, or the standard one."""
         return self.skin if self.skin is not None else STANDARD_SKIN
 
 
-# ``Direction`` is an IntFlag, and every ``&`` or ``|`` on one builds a
-# fresh enum member — tens of thousands per frame, which was more than
-# half the time spent drawing. The bit work below is done on these
-# plain ints instead; ``Direction`` stays the language at the edges.
+# Direction is an IntFlag, and every & or | on one builds a fresh enum
+# member — tens of thousands a frame, once over half the drawing time.
+# The bit work uses these plain ints; Direction stays the edge language.
 NORTH = int(Direction.N)
 EAST = int(Direction.E)
 SOUTH = int(Direction.S)
@@ -199,11 +187,7 @@ WEST = int(Direction.W)
 
 
 def maze_wall_above(maze: Maze, col: int, row: int) -> bool:
-    """Is there a horizontal wall segment above cell (col, row)?
-
-    The N and S edges of the maze are walled by definition; inside,
-    the segment is the north wall of the cell below it.
-    """
+    """A horizontal wall above (col, row)? The N and S edges always are."""
     width, height = maze.get_dim()
     if not (0 <= col < width and 0 <= row <= height):
         return False
@@ -213,11 +197,7 @@ def maze_wall_above(maze: Maze, col: int, row: int) -> bool:
 
 
 def maze_wall_left(maze: Maze, col: int, row: int) -> bool:
-    """Is there an upright wall segment left of cell (col, row)?
-
-    The W and E edges of the maze are walled by definition; inside,
-    the segment is the west wall of the cell to its right.
-    """
+    """An upright wall left of (col, row)? The W and E edges always are."""
     width, height = maze.get_dim()
     if not (0 <= row < height and 0 <= col <= width):
         return False
@@ -227,11 +207,9 @@ def maze_wall_left(maze: Maze, col: int, row: int) -> bool:
 
 
 def path_sides(path: Path) -> dict[Cell, int]:
-    """The shape of the path line in each cell.
+    """Per cell of the route, the sides it links to, added together.
 
-    The path is the route the solver walks, entry to exit. For every
-    cell of it, the sides it links to added together — the same
-    sixteen-piece index the walls are drawn with.
+    The same sixteen-piece index the walls are drawn with.
     """
     sides: dict[Cell, int] = {}
     for index, cell in enumerate(path):
@@ -253,14 +231,11 @@ def merge_paths(paths: Paths, elements: Sequence[JoinedElement],
                 goal: Cell | None = None) -> dict[Cell, Link]:
     """Merge several paths into one link per cell.
 
-    Each path takes its own element, round again if there are more
-    paths than elements. Where paths share a cell the sides add up,
-    so it links every way any of them leaves by.
-
-    Once solved, every cell of every path takes the meeting element
-    instead — two colours right up to that step, one from it on.
-    Solved means a cell more than one path runs through, or a path
-    that has reached ``goal``.
+    Each path takes its own element, cycling if there are more paths
+    than elements; shared cells add their sides together. Once solved
+    every cell takes ``meeting`` instead, so a bidirectional search
+    goes two colours to the moment it meets and one from there on.
+    Solved means a shared cell, or a path that reached ``goal``.
     """
     sides_of: dict[Cell, int] = {}
     walked_by: dict[Cell, set[int]] = {}
@@ -282,7 +257,7 @@ def merge_paths(paths: Paths, elements: Sequence[JoinedElement],
 
 
 def paint(text: str, element: Element) -> str:
-    """Return the text wrapped in colors."""
+    """Wrap the text in its element's colour."""
     if not text:
         return text
     return f"\033[{element.ink}m{text}\033[0m" if element.ink else text
@@ -294,8 +269,7 @@ def paint(text: str, element: Element) -> str:
 
 def maze_junction(maze: Maze, col: int, row: int,
                   skin: TerminalSkin) -> tuple[str, Element]:
-    """Return the piece that belongs where four walls could meet."""
-
+    """The piece belonging where four walls could meet."""
     width, height = maze.get_dim()
     sides = 0
     if maze_wall_left(maze, col, row - 1):
@@ -313,16 +287,11 @@ def maze_junction(maze: Maze, col: int, row: int,
 
 def _wall_line(maze: Maze, row: int, plan: Drawing,
                links: dict[Cell, Link]) -> str:
-    """Return the horizontal line that runs above a row of cells.
+    """The horizontal line above row ``row``: junctions and the walls.
 
-    Every junction, and between them the wall the cells above and
-    below share. There is one more of these lines than there are
-    rows: row 0 is the top of the maze, row ``height`` the bottom.
-
-    Where there is no wall the floor shows through, and the path
-    crosses the opening north to south.
+    One more of these than there are rows — row 0 is the top, row
+    ``height`` the bottom. An opening here is crossed north to south.
     """
-
     skin, cell_width = plan.drawn_with(), plan.cell_width
     width, height = maze.get_dim()
     out = []
@@ -346,13 +315,9 @@ def _cell_line(maze: Maze, row: int, plan: Drawing,
                links: dict[Cell, Link],
                marks: dict[Cell, Element],
                seen: dict[Cell, Element]) -> str:
-    """Return the line through a row: its walls and its centres.
+    """The line through a row: the wall beside each cell, then inside it.
 
-    The wall standing beside each cell, then the inside of the cell —
-    floor, the path, whatever mark stands there. One per row.
-
-    An opening here is in an upright wall, so the path crosses it
-    east to west.
+    The wall here is upright, so an opening is crossed east to west.
     """
     skin = plan.drawn_with()
     width, _ = maze.get_dim()
@@ -371,44 +336,17 @@ def _cell_line(maze: Maze, row: int, plan: Drawing,
     return "".join(out)
 
 
-def maze_line(maze: Maze, char_row: int, plan: Drawing,
-              links: dict[Cell, Link],
-              marks: dict[Cell, Element],
-              seen: dict[Cell, Element]) -> str:
-    """Return one line of the maze, whichever kind it is.
-
-    A 2x2 maze is five lines, and they alternate::
-
-        char_row 0   ┏━━━┯━━━┓   even — the walls above, and junctions
-        char_row 1   ┃ E │   ┃   odd  — the walls beside, and centres
-        char_row 2   ┠───┼───┨   even
-        char_row 3   ┃   │ X ┃   odd
-        char_row 4   ┗━━━┷━━━┛   even
-
-    The centres are where anything that is not a wall goes: the
-    floor, the path, E and X. ``divmod`` gives both answers at once —
-    which kind of line, and which row of cells it belongs to.
-    """
-    row, kind = divmod(char_row, 2)
-    if kind:
-        return _cell_line(maze, row, plan, links, marks, seen)
-    return _wall_line(maze, row, plan, links)
-
-
 def _cell_body(col: int, row: int, plan: Drawing,
                links: dict[Cell, Link],
                marks: dict[Cell, Element],
                seen: dict[Cell, Element]) -> str:
-    """Return the inside of one cell: everything that is not a wall.
+    """The inside of one cell: everything that is not a wall.
 
-    The middle, where a mark or the path stands, and a stretch either
-    side of it where the path runs out towards the cells it links
-    to::
+    A middle where a mark or the path stands, and a run either side
+    of it reaching towards the cells it links to::
 
-        "   "    nothing here
-        " E "    entry symbol stands here
-        "───"    the path runs straight through
-        "─╮ "    the path arrives from the west and turns south
+        "   "  empty    " E "  the entry
+        "───"  straight through    "─╮ "  in from the west, turning south
     """
     skin, cell_width = plan.drawn_with(), plan.cell_width
     cell = (col, row)
@@ -424,12 +362,11 @@ def _cell_centre(skin: TerminalSkin, cell: Cell,
                  marks: dict[Cell, Element],
                  links: dict[Cell, Link],
                  seen: dict[Cell, Element]) -> str:
-    """Return the character in the middle of a cell.
+    """The character in the middle of a cell.
 
-    A mark beats the path, the path beats a cell the search went
-    through, and that beats the floor. The order is the point: every
-    cell of a route was searched first, so a search drawn over the
-    route would rub it out.
+    Mark beats path beats searched beats floor. The order matters:
+    every cell of a route was searched first, so drawing the search
+    last would rub the route out.
     """
     if cell in marks:
         return paint(marks[cell].symbol, marks[cell])
@@ -443,7 +380,7 @@ def _cell_centre(skin: TerminalSkin, cell: Cell,
 
 def _path_run(span: int, skin: TerminalSkin,
               path: JoinedElement | None) -> str:
-    """Return the path running out of a cell, or the floor."""
+    """The path running out of a cell, or the floor."""
     if path is None:
         return paint(skin.floor.symbol * span, skin.floor)
     return paint(path.straight(Direction.E) * span, path)
@@ -451,11 +388,11 @@ def _path_run(span: int, skin: TerminalSkin,
 
 def _wall_opening(skin: TerminalSkin, span: int, through: Direction,
                   crossing: JoinedElement | None) -> str:
-    """What to draw where a wall is missing: the path, or the floor.
+    """What fills a missing wall: the path crossing it, or the floor.
 
-    ``through`` is the way the opening is passed — north for a gap in
-    a wall that runs across, west for one that stands upright. The
-    caller says which, since the span cannot tell them apart.
+    ``through`` is the way it is crossed — north for a gap in a wall
+    running across, west for an upright one. The span cannot tell
+    them apart, so the caller says which.
     """
     if crossing is None:
         return paint(skin.floor.symbol * span, skin.floor)
@@ -468,11 +405,10 @@ def _wall_opening(skin: TerminalSkin, span: int, through: Direction,
 
 def _path_through(links: dict[Cell, Link], cell: Cell,
                   side: Direction) -> JoinedElement | None:
-    """Return the path that crosses the opening on that side, if any.
+    """The path crossing the opening on that side, if any.
 
-    Asked from both sides: this cell may link that way, or the cell
-    beyond may link back. Either answer is the same crossing, and the
-    element that comes with it says which path made it.
+    Asked from both cells: either may link towards the other, and
+    both mean the same crossing.
     """
     step_col, step_row = side.step()
     other = (cell[0] + step_col, cell[1] + step_row)
@@ -488,9 +424,9 @@ def _path_through(links: dict[Cell, Link], cell: Cell,
 def wrap(text: str, width: int) -> list[str]:
     """Break a message into as many lines as it takes to keep all of it.
 
-    A message that already fits comes back untouched, spacing and
-    all: the action bar spaces its keys out on purpose. Only when it
-    does not fit is that spacing spent, a word at a time.
+    One that fits comes back untouched, spacing and all — the action
+    bar spaces its keys on purpose. Only a message that does not fit
+    spends that spacing.
     """
     if width < 1 or len(text) <= width:
         return [text]
@@ -500,18 +436,18 @@ def wrap(text: str, width: int) -> list[str]:
 
 def message_lines(message: Sequence[str], canvas: int,
                   frame: Frame) -> list[str]:
-    """The lines under the maze: every message, wrapped to the canvas.
+    """The lines under the maze, wrapped to the canvas.
 
-    ``frame.tail`` is a floor, not a count. Fewer lines are padded
-    out with blanks so nothing jumps between frames; more make the
-    tail taller rather than being cut.
+    ``frame.tail`` is a floor, not a count: fewer are padded with
+    blanks so nothing jumps between frames, more make the tail
+    taller rather than being cut.
     """
     lines = [line for text in message for line in wrap(text, canvas)]
     return lines + [""] * (frame.tail - len(lines))
 
 
 def band(text: str, width: int, element: Element) -> str:
-    """Return one line of canvas, with the text centred on it."""
+    """One line of canvas, with the text centred on it."""
     text = text[:width]
     left = (width - len(text)) // 2
     return (" " * left + paint(text, element)
@@ -519,17 +455,16 @@ def band(text: str, width: int, element: Element) -> str:
 
 
 # ---------------------------------------------------------------------
-# And finally but not least, the render function.
+# The canvas around it, and the render function itself.
 
 
 def drawing_size(width: int, height: int, cell_width: int = CELL_WIDTH,
                  frame: Frame = FRAME) -> tuple[int, int]:
-    """Return the columns and lines a drawing of that maze would take.
+    """The columns and lines a drawing of that maze would take.
 
-    Every cell needs its own width plus one character for the wall
-    beside it, and one more closes the right-hand side; every row
-    needs a line for its cells and one for the wall above, and one
-    more closes the bottom. The frame is added to both.
+    Each cell costs its width plus the wall beside it, and one more
+    closes the right; each row costs a cell line and a wall line,
+    and one more closes the bottom. The frame is added to both.
     """
     return (width * (cell_width + 1) + 1 + 2 * frame.sides,
             2 * height + 1 + frame.head + frame.tail)
@@ -539,16 +474,14 @@ def mark_cells(maze: Maze, plan: Drawing,
                skin: TerminalSkin) -> dict[Cell, Element]:
     """What stands on a cell instead of the floor, in drawing order.
 
-    The "42" first, so that an end or a character standing on one of
-    its cells is drawn over the filling rather than under it; then the
-    two characters; then the entry and the exit, which always win.
+    The "42" first, so an end standing on one of its cells is drawn
+    over the filling; then entry and exit, which always win.
     """
     marks: dict[Cell, Element] = {}
     if skin.forty_two is not None:
         for filled in maze.get_frozen():
             marks[filled] = skin.forty_two
-    for cell, element in ((plan.char1, skin.char1), (plan.char2, skin.char2),
-                          (maze.get_entry(), skin.entry),
+    for cell, element in ((maze.get_entry(), skin.entry),
                           (maze.get_exit(), skin.exit)):
         if cell is not None and element is not None:
             marks[cell] = element
@@ -556,12 +489,11 @@ def mark_cells(maze: Maze, plan: Drawing,
 
 
 def seen_cells(plan: Drawing, skin: TerminalSkin) -> dict[Cell, Element]:
-    """What a cell the search has been through looks like.
+    """What a cell the search went through looks like.
 
-    One element per front, in the order the fronts are given, so the
-    two halves of a search from both ends are told apart the same way
-    two routes are. A cell claimed by more than one front keeps the
-    first that reached it.
+    One element per front, so the two halves of a bidirectional
+    search are told apart the way two routes are. A cell claimed
+    twice keeps the front that reached it first.
     """
     seen: dict[Cell, Element] = {}
     if not skin.seen:
@@ -575,12 +507,7 @@ def seen_cells(plan: Drawing, skin: TerminalSkin) -> dict[Cell, Element]:
 
 def canvas(body: Sequence[str], plan: Drawing, skin: TerminalSkin,
            columns: int) -> str:
-    """Set the drawn maze in its canvas: title above, messages below.
-
-    The head is blank lines with the title centred in the middle of
-    them, the maze is padded either side by ``frame.sides``, and the
-    tail is the messages, each centred on the same width.
-    """
+    """Set the drawn maze in its canvas: title above, messages below."""
     frame = plan.frame
     side = " " * frame.sides
     out = [band("", columns, skin.title) for _ in range(frame.head)]
@@ -592,18 +519,12 @@ def canvas(body: Sequence[str], plan: Drawing, skin: TerminalSkin,
     return "\n".join(out)
 
 
-class TooSmallTerminal(Exception):
-    """The window cannot hold the drawing of that maze."""
-
-
 def too_small(needed: tuple[int, int],
               space: tuple[int, int]) -> TooSmallTerminal:
-    """The refusal, said in a way the reader can act on.
+    """The refusal, said so the reader can act on it.
 
-    Which way it is short, by how much, and what to do about it. A
-    terminal is made bigger by making its text smaller, which is not
-    the first thing that comes to mind when a program says there is
-    not enough room — so it is the thing this says out loud.
+    A terminal is made bigger by making its text smaller, which is
+    not the first thing that comes to mind, so it is said out loud.
     """
     short = []
     if needed[0] > space[0]:
@@ -621,13 +542,11 @@ def too_small(needed: tuple[int, int],
 def render(maze: Maze, drawing: Drawing | None = None) -> str:
     """Draw a maze and return it as one string, ready to print.
 
-    Four steps: what the path looks like in every cell, what stands on
-    a cell, the maze drawn line by line consulting both, and the
-    canvas set around it.
+    The path in every cell, what stands on a cell, the maze drawn
+    line by line from both, then the canvas around it.
 
-    Raises ``TooSmallTerminal`` when the window cannot hold it. The
-    drawing is never shrunk to make it fit — a maze is what was asked
-    for, and half of one is not an answer.
+    Raises ``TooSmallTerminal`` rather than shrinking to fit: half a
+    maze is not an answer.
     """
     plan = drawing or Drawing()
     skin = plan.drawn_with()
@@ -640,27 +559,26 @@ def render(maze: Maze, drawing: Drawing | None = None) -> str:
     links = merge_paths(plan.paths, skin.paths, skin.meeting, maze.get_exit())
     marks = mark_cells(maze, plan, skin)
     seen = seen_cells(plan, skin)
-    body = [maze_line(maze, char_row, plan, links, marks, seen)
-            for char_row in range(2 * height + 1)]
+    # Lines alternate: even ones are walls, odd ones are cells.
+    # divmod gives both answers at once — which kind, and which row.
+    body = []
+    for char_row in range(2 * height + 1):
+        row, kind = divmod(char_row, 2)
+        body.append(_cell_line(maze, row, plan, links, marks, seen) if kind
+                    else _wall_line(maze, row, plan, links))
     return canvas(body, plan, skin, columns)
-
-
-def show(maze: Maze, drawing: Drawing | None = None) -> None:
-    """Print a maze in colour, for a quick look."""
-    print(render(maze, drawing))
 
 
 def redraw(maze: Maze, drawing: Drawing | None = None) -> None:
     """Draw the maze over the last one, in a single write.
 
-    The screen is never wiped first. The cursor goes home, each line
-    erases whatever is left of the row it lands on (``\033[K``), and
-    one erase at the end clears the rows a shorter drawing no longer
-    covers (``\033[J``). Wiping first would leave the screen blank
-    until the new frame arrived, which is what shows as a flicker.
+    Never wiped first — that shows as a flicker. Instead the cursor
+    goes home, each line erases the rest of its row (``\033[K``), and
+    one erase at the end clears rows a shorter drawing left behind
+    (``\033[J``).
 
-    No trailing newline either: a frame as tall as the window would
-    scroll it by a row, and the next frame would start one row high.
+    No trailing newline: a full-height frame would scroll the window
+    by a row and the next would start one row high.
     """
     frame = render(maze, drawing).replace("\n", "\033[K\n")
     sys.stdout.write("\033[H" + frame + "\033[K\033[J")
@@ -678,17 +596,8 @@ def read_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-WALL_COLOURS = (
-    "chambray",
-    "vermilion",
-    "gamboge",
-    "peppermint",
-    "ultramarine",
-)
-
-
 def colour_menu(maze: Maze, drawing: Drawing) -> str:
-    """Numbered swatches, centred on the same canvas as the message."""
+    """Numbered swatches, centred on the same canvas as the messages."""
     parts: list[str] = []
     for index, name in enumerate(WALL_COLOURS, start=1):
         swatch = rainbow.write("█", ink=name)
@@ -701,6 +610,21 @@ def colour_menu(maze: Maze, drawing: Drawing) -> str:
     left = max(0, (columns - visible) // 2)
     right = max(0, columns - left - visible)
     return " " * left + text + " " * right
+
+
+def show_colour_menu(maze: Maze, drawing: Drawing) -> None:
+    """Put the swatches on the canvas's last line, in place.
+
+    ``redraw`` parks the cursor at the end of the line it drew, so
+    printing the menu would start it there and run off to the right.
+    That last line is blank padding, so the menu costs no height.
+    """
+    width, height = maze.get_dim()
+    columns, lines = drawing_size(width, height, drawing.cell_width,
+                                  drawing.frame)
+    sys.stdout.write(f"\033[{lines};1H" + colour_menu(maze, drawing)
+                     + "\033[K")
+    sys.stdout.flush()
 
 
 def apply_wall_colour(drawing: Drawing, colour: str) -> None:
@@ -718,71 +642,70 @@ def apply_wall_colour(drawing: Drawing, colour: str) -> None:
 # Animation: the same drawing, again, over itself.
 
 
-# How long one frame is held. Carving yields a frame for every wall it
-# takes down, so it runs at the faster of the two; a route arriving is
-# meant to be followed by eye.
-# How long a frame is held *on top of* the time it takes to draw one.
-# On a 30x30 that is already some twenty milliseconds, which paces the
-# animation on its own; the pause is what a small maze needs, where a
-# frame costs almost nothing.
-CARVE_DELAY = 0.0
-PATH_DELAY = 0.02
+class FrameClock:
+    """Holds an animation to a fixed rate, whatever a frame costs.
 
-# One carved wall in this many is drawn. A 30x30 carve yields around a
-# thousand frames and drawing one costs some twenty milliseconds, so
-# every one of them is half a minute of watching a wall come down.
-CARVE_EVERY = 5
+    ``tick`` waits out the frame's slot, or returns True if the frame
+    already overran it — the caller's cue to drop a source frame. A
+    slow terminal shows less of the animation rather than taking
+    longer over it. ``fps`` of None does not pace at all.
+    """
 
-# The search spreads over far fewer cells than a carve takes down
-# walls — a 20x15 is around two hundred against a thousand — so every
-# frame of it is drawn, and the spread is watched cell by cell.
-#
-# A frame of search costs about five milliseconds to draw, well under
-# the twenty a carve costs, so unlike CARVE_DELAY this one cannot be
-# left at nothing: the whole reveal would go by in a fifth of a
-# second. The pause is what paces it, and it is shorter than
-# PATH_DELAY because there are several times as many cells to get
-# through.
-SEEN_DELAY = 0.005
-SEEN_EVERY = 1
+    def __init__(self, fps: float | None = DEFAULT_FPS) -> None:
+        self.interval = 1.0 / fps if fps else 0.0
+        self.deadline: float | None = None
+
+    def tick(self) -> bool:
+        """Wait out this frame's slot. True if it had already ended."""
+        if not self.interval:
+            return False
+        now = time.perf_counter()
+        if self.deadline is None:
+            self.deadline = now + self.interval
+            return False
+        if now < self.deadline:
+            time.sleep(self.deadline - now)
+            self.deadline += self.interval
+            return False
+        # Late: skip the deadline past every missed slot, so catching
+        # up is never attempted by drawing faster than asked.
+        missed = int((now - self.deadline) // self.interval) + 1
+        self.deadline += self.interval * missed
+        return True
 
 
 @dataclass
 class AnimationFrame:
-    """One animation snapshot: maze state together with its drawing."""
+    """One snapshot: a maze state and the drawing that goes with it."""
 
     maze: Maze
     drawing: Drawing = field(default_factory=Drawing)
 
 
-def path_frames(maze: Maze, drawing: Drawing) -> Iterable[AnimationFrame]:
-    """Yield snapshots that reveal every path one cell at a time.
+def _growing(tracks: Paths) -> Iterator[Paths]:
+    """Every track grown by one cell a frame, all of them together.
 
-    Each route grows by a cell per frame, which is what makes two
-    halves of a bidirectional search meet on screen.
+    Together, not one after another, so a route or search running
+    from both ends is seen closing on itself.
     """
-    length = max((len(path) for path in drawing.paths), default=0)
+    length = max((len(track) for track in tracks), default=0)
     for end in range(length + 1):
-        prefixes = tuple(path[:end] for path in drawing.paths)
-        yield AnimationFrame(maze, replace(drawing, paths=prefixes))
+        yield tuple(track[:end] for track in tracks)
+
+
+def path_frames(maze: Maze, drawing: Drawing) -> Iterable[AnimationFrame]:
+    """Snapshots revealing every route a cell at a time."""
+    return (AnimationFrame(maze, replace(drawing, paths=grown))
+            for grown in _growing(drawing.paths))
 
 
 def seen_frames(maze: Maze, drawing: Drawing) -> Iterable[AnimationFrame]:
-    """Yield snapshots that spread the search one cell at a time.
+    """Snapshots spreading the search a cell at a time.
 
-    ``path_frames`` over the other field. Every front grows together,
-    a cell each per frame, so a search running from both ends is seen
-    closing on itself rather than one side finishing before the other
-    starts.
-
-    The order is the solver's: whatever ``get_visited`` handed over is
-    replayed as it came. A solver that keeps its cells in a set has
-    nothing to replay, and its search simply arrives whole.
+    Replayed in the solver's own order, as ``get_visited`` gave it.
     """
-    length = max((len(front) for front in drawing.visited), default=0)
-    for end in range(length + 1):
-        prefixes = tuple(front[:end] for front in drawing.visited)
-        yield AnimationFrame(maze, replace(drawing, visited=prefixes))
+    return (AnimationFrame(maze, replace(drawing, visited=grown))
+            for grown in _growing(drawing.visited))
 
 
 def clear_screen() -> None:
@@ -791,11 +714,10 @@ def clear_screen() -> None:
 
 
 def hide_cursor() -> None:
-    """Take the cursor off the screen while something is animating.
+    """Take the cursor off the screen.
 
-    It parks at the end of the last line drawn, where it blinks and,
-    if the drawing does not fit the window, appears to wander as the
-    screen scrolls under it. Neither is part of the picture.
+    It parks at the end of the last line drawn, blinking, and wanders
+    if the screen scrolls. Neither is part of the picture.
     """
     sys.stdout.write("\033[?25l")
     sys.stdout.flush()
@@ -807,9 +729,30 @@ def show_cursor() -> None:
     sys.stdout.flush()
 
 
+@contextmanager
+def cursor_hidden() -> Iterator[None]:
+    """Keep the cursor hidden for as long as the block runs.
+
+    Held across a whole session, not one animation: put back between
+    two of them it shows for a frame, and that reads as a blink.
+
+    Restored on the way out however that happens, ctrl-c included —
+    a terminal left cursorless is one the next program has to fix.
+    """
+    hide_cursor()
+    try:
+        yield
+    finally:
+        show_cursor()
+
+
 def _play(frame: Maze | AnimationFrame, shared: Drawing,
-          delay: float, reveal: bool) -> None:
-    """Draw one frame, growing its paths a cell at a time if asked."""
+          clock: FrameClock, reveal: bool) -> bool:
+    """Draw one frame, growing its paths a cell at a time if asked.
+
+    True if any of it overran its slot, so the caller knows the
+    animation is behind the rate asked for.
+    """
     if isinstance(frame, AnimationFrame):
         maze, plan = frame.maze, frame.drawing
     else:
@@ -817,55 +760,50 @@ def _play(frame: Maze | AnimationFrame, shared: Drawing,
     snapshots = (path_frames(maze, plan)
                  if reveal and plan.paths
                  else (AnimationFrame(maze, plan),))
+    late = False
     for snapshot in snapshots:
         redraw(snapshot.maze, snapshot.drawing)
-        time.sleep(delay)
+        late = clock.tick() or late
+    return late
 
 
 def animate(frames: Iterable[Maze | AnimationFrame],
             drawing: Drawing | None = None,
-            delay: float = 0.05, reveal: bool = True,
+            fps: float | None = DEFAULT_FPS, reveal: bool = True,
             every: int = 1) -> None:
     """Draw one maze after another in place, as a moving picture.
 
-    ``frames`` may be maze states, or ``AnimationFrame`` snapshots
-    carrying their own drawing; maze-only frames use the shared
-    ``drawing``. A drawing with paths reveals them a cell at a time,
-    unless ``reveal`` is False — which is how a finished route is
-    held on screen instead of grown again from nothing.
+    ``frames`` are maze states, or ``AnimationFrame`` snapshots that
+    carry their own drawing; a generator yielding after each change
+    animates directly, as ``animate(generator.carve())``.
 
-    A generator that yields itself after each change animates too::
+    ``reveal`` grows a drawing's paths a cell at a time; False holds a
+    finished route instead of growing it again from nothing.
 
-        animate(generator.carve(), delay=0.02)
+    ``every`` draws one frame in that many. A carve yields after each
+    wall and drawing costs far more than carving, so what makes a
+    long one watchable is showing less of it. The last frame is
+    always drawn — it is the finished picture.
 
-    ``every`` draws one frame in that many and lets the rest go by. A
-    carve yields after every single wall, and drawing one costs far
-    more than making one, so what makes a long carve watchable is
-    showing less of it rather than waiting less between frames. The
-    last frame is always drawn, whatever the count says: it is the
-    finished picture.
+    ``fps`` paces what is left, via ``FrameClock``.
 
-    The screen is wiped once before the first frame; every frame after
-    overwrites it in place, so what is left at the end is the finished
-    maze. The cursor is hidden for the duration.
+    The screen is wiped once, then every frame overwrites in place.
+    The cursor is the caller's to hide, with ``cursor_hidden``.
     """
     if every < 1:
         raise ValueError(f"a frame in every {every} is not a number of "
                          f"frames; the least is 1")
     shared = drawing or Drawing()
     clear_screen()
-    hide_cursor()
-    try:
-        skipped: Maze | AnimationFrame | None = None
-        for number, frame in enumerate(frames):
-            if number % every:
-                skipped = frame
-                continue
-            skipped = None
-            _play(frame, shared, delay, reveal)
-        if skipped is not None:
-            _play(skipped, shared, delay, reveal)
-    finally:
-        # Even on ctrl-c: a terminal left without a cursor is a
-        # terminal the next program has to fix.
-        show_cursor()
+    clock = FrameClock(fps)
+    skipped: Maze | AnimationFrame | None = None
+    behind = False
+    for number, frame in enumerate(frames):
+        if number % every or behind:
+            skipped = frame
+            behind = False
+            continue
+        skipped = None
+        behind = _play(frame, shared, clock, reveal)
+    if skipped is not None:
+        _play(skipped, shared, clock, reveal)

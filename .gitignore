@@ -29,3 +29,9 @@ desktop.ini
 
 # Manim animations: scene scripts and the videos they render
 docs/manim/
+
+# Workshop material kept locally, not part of the delivery
+tests/
+docs/
+subject/
+todo.txt
